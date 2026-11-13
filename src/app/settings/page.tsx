@@ -100,7 +100,7 @@ export default function SettingsPage() {
           기본값으로 되돌리기
         </button>
       </section>
-      <p className="muted small center">데이터는 로그인한 계정에 저장되어 어느 기기에서든 볼 수 있어요.</p>
+      <p className="muted small center">이 기기의 브라우저에만 저장돼요. 다른 휴대폰이나 PC에서는 비어 있고, 새로고침하거나 탭을 닫아도 여기 데이터는 남아요.</p>
     </div>
   );
 }

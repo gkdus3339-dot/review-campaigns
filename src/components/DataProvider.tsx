@@ -2,6 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { todayISO } from "@/lib/dates";
+import { createLocal, loadLocal, removeLocal, savePlatformsLocal, updateLocal } from "@/lib/store";
 import { Campaign, CampaignInput, DEFAULT_PLATFORMS } from "@/lib/types";
 
 interface DataState {
@@ -20,18 +21,6 @@ interface DataState {
 
 const DataContext = createContext<DataState | null>(null);
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: init?.body ? { "content-type": "application/json" } : undefined,
-    cache: "no-store",
-  });
-  if (res.status === 204) return undefined as T;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `요청에 실패했습니다 (${res.status})`);
-  return data as T;
-}
-
 export function DataProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,12 +38,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     try {
-      const [c, s] = await Promise.all([
-        request<{ campaigns: Campaign[] }>("/api/campaigns"),
-        request<{ platforms: string[] }>("/api/settings"),
-      ]);
-      setCampaigns(c.campaigns);
-      setPlatforms(s.platforms);
+      const stored = loadLocal();
+      setCampaigns(stored.campaigns);
+      setPlatforms(stored.platforms);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "불러오지 못했습니다");
@@ -71,25 +57,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const replace = (c: Campaign) => setCampaigns((list) => list.map((x) => (x.id === c.id ? c : x)));
 
   const create = useCallback(async (input: CampaignInput) => {
-    const { campaign } = await request<{ campaign: Campaign }>("/api/campaigns", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    setCampaigns((list) => [campaign, ...list]);
+    const campaign = createLocal(input);
+    setCampaigns((list) => [campaign, ...list.filter((x) => x.id !== campaign.id)]);
     return campaign;
   }, []);
 
   const update = useCallback(async (id: string, patch: Partial<CampaignInput>) => {
-    const { campaign } = await request<{ campaign: Campaign }>(`/api/campaigns/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
+    const campaign = updateLocal(id, patch);
     replace(campaign);
     return campaign;
   }, []);
 
   const remove = useCallback(async (id: string) => {
-    await request(`/api/campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
+    removeLocal(id);
     setCampaigns((list) => list.filter((x) => x.id !== id));
   }, []);
 
@@ -115,11 +95,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   );
 
   const savePlatforms = useCallback(async (next: string[]) => {
-    const res = await request<{ platforms: string[] }>("/api/settings", {
-      method: "PUT",
-      body: JSON.stringify({ platforms: next }),
-    });
-    setPlatforms(res.platforms);
+    setPlatforms(savePlatformsLocal(next));
   }, []);
 
   const value = useMemo(
