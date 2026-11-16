@@ -107,9 +107,15 @@ export default function CampaignDetailPage() {
         <InfoRow label="체험단">{c.platform || <span className="muted">미정</span>}</InfoRow>
         <InfoRow label="연락할 번호">
           {c.phone ? (
-            <a className="icon-link" href={`tel:${c.phone.replace(/\D/g, "")}`}>
-              {c.phone}
-            </a>
+            isSafeUrl(c.phone) ? (
+              <a className="contact-link" href={c.phone} target="_blank" rel="noopener noreferrer">
+                {c.phone}
+              </a>
+            ) : (
+              <a className="contact-link" href={`tel:${c.phone.replace(/\D/g, "")}`}>
+                {c.phone}
+              </a>
+            )
           ) : (
             <span className="muted">미정</span>
           )}
@@ -119,7 +125,14 @@ export default function CampaignDetailPage() {
           {visitOpen && !c.visit_date && c.visit_end && <DdayBadge date={c.visit_end} today={today} />}
         </InfoRow>
         <InfoRow label="방문 가능 시간">
-          {formatTimeRange(c.visit_time_start, c.visit_time_end) || <span className="muted">미정</span>}
+          {formatTimeRange(c.visit_time_start, c.visit_time_end) || c.visit_time_note ? (
+            <>
+              {formatTimeRange(c.visit_time_start, c.visit_time_end)}
+              {c.visit_time_note ? <span className="time-note">{c.visit_time_note}</span> : null}
+            </>
+          ) : (
+            <span className="muted">미정</span>
+          )}
         </InfoRow>
         <InfoRow label="방문 예약일">
           {c.visit_date ? formatShort(c.visit_date) : <span className="muted">미정</span>}

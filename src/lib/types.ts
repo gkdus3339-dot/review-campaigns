@@ -5,7 +5,7 @@ export const FLOW_STATUSES: Status[] = ["당첨", "방문 예정", "방문 완�
 
 export const CATEGORIES = ["맛집", "카페", "뷰티", "숙박", "제품", "생활/서비스", "기타"] as const;
 
-export const DEFAULT_PLATFORMS = ["레뷰", "강남맛집", "디너의여왕", "리뷰노트", "기타"];
+export const DEFAULT_PLATFORMS = ["레뷰", "강남맛집", "디너의여왕", "리뷰노트", "링블", "기타"];
 
 export interface CampaignInput {
   platform: string;
@@ -19,6 +19,7 @@ export interface CampaignInput {
   visit_end: string | null;
   visit_time_start: string | null;
   visit_time_end: string | null;
+  visit_time_note: string;
   visit_date: string | null;
   deadline: string | null;
   won_date: string | null;
@@ -49,6 +50,7 @@ export function emptyCampaign(today: string): CampaignInput {
     visit_end: null,
     visit_time_start: null,
     visit_time_end: null,
+    visit_time_note: "",
     visit_date: null,
     deadline: null,
     won_date: today,

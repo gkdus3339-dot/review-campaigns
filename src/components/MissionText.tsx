@@ -6,7 +6,7 @@ export function MissionText({ text }: { text: string }) {
     <div className="mission">
       {parts.map((part, index) => {
         if (!/^https?:\/\//i.test(part)) return <span key={index}>{part}</span>;
-        const href = part.replace(/[),.;]+$/, "");
+        const href = part.replace(/[),.;]+$/, "").replace(/[가-힣]+$/u, "");
         const trail = part.slice(href.length);
         if (!isSafeUrl(href)) return <span key={index}>{part}</span>;
         return (

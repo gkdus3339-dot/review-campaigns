@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, ReactNode, useState } from "react";
+import { loadLinkedPages } from "@/lib/fetch-pages";
 import { parseWinMessage } from "@/lib/parser";
-import { CampaignInput, CATEGORIES, STATUSES } from "@/lib/types";
+import { CampaignInput, CATEGORIES, isSafeUrl, STATUSES } from "@/lib/types";
 import { useData } from "./DataProvider";
 import { ChevronDown, ClipboardIcon, SparkleIcon } from "./Icons";
 import { MissionText } from "./MissionText";
@@ -22,6 +23,7 @@ const FIELD_LABEL: Partial<Record<Key, string>> = {
   visit_end: "방문 종료일",
   visit_time_start: "방문 시작 시간",
   visit_time_end: "방문 종료 시간",
+  visit_time_note: "방문 시간 안내",
   visit_date: "방문 예약일",
   deadline: "리뷰 마감일",
   won_date: "당첨일",
@@ -61,6 +63,7 @@ export function CampaignForm({
   const [pasteOpen, setPasteOpen] = useState(Boolean(showPaste));
   const [message, setMessage] = useState("");
   const [parseNote, setParseNote] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +81,22 @@ export function CampaignForm({
     });
   };
 
-  const applyParse = (text: string) => {
-    const { fields, filled } = parseWinMessage(text, { today, platforms });
+  const applyParse = async (text: string) => {
+    if (reading) return;
+    setReading(true);
+    setMessage(text);
+    setParseNote("메시지와 안의 링크를 읽고 있어요...");
+    let pages: { url: string; text: string }[] = [];
+    let failed: string[] = [];
+    try {
+      const loaded = await loadLinkedPages(text);
+      pages = loaded.pages;
+      failed = loaded.failed;
+    } catch {
+      failed = [];
+    }
+    const { fields, filled } = parseWinMessage(text, { today, platforms, pages });
+    setReading(false);
     if (filled.length === 0) {
       setParseNote("인식된 항목이 없어요. 메시지를 확인하거나 직접 입력해 주세요.");
       return;
@@ -88,7 +105,8 @@ export function CampaignForm({
     if (fields.amount !== undefined) setAmountText(fields.amount?.toLocaleString("ko-KR") ?? "");
     setAuto(new Set(filled));
     const names = filled.map((k) => FIELD_LABEL[k]).filter(Boolean);
-    setParseNote(`${names.length}개 항목을 채웠어요: ${names.join(", ")}. 아래에서 확인 후 저장하세요.`);
+    const missed = failed.length ? ` 이 링크는 읽지 못했습니다: ${failed.join(", ")}.` : "";
+    setParseNote(`${names.length}개 항목을 채웠어요: ${names.join(", ")}.${missed} 아래에서 확인 후 저장하세요.`);
     setPasteOpen(false);
   };
 
@@ -153,8 +171,8 @@ export function CampaignForm({
                 aria-label="당첨 메시지"
               />
               <div className="row gap wrap">
-                <button type="button" className="btn primary" onClick={() => applyParse(message)} disabled={!message.trim()}>
-                  <SparkleIcon size={18} /> 자동 채우기
+                <button type="button" className="btn primary" onClick={() => void applyParse(message)} disabled={reading || !message.trim()}>
+                  <SparkleIcon size={18} /> {reading ? "읽는 중..." : "자동 채우기"}
                 </button>
                 <button type="button" className="btn" onClick={pasteFromClipboard}>
                   클립보드에서 붙여넣기
@@ -263,13 +281,17 @@ export function CampaignForm({
 
         <Field label="연락할 번호" auto={isAuto("phone")}>
           <input
-            type="tel"
-            inputMode="tel"
+            type="text"
             value={form.phone}
             onChange={(e) => set("phone", e.target.value)}
-            placeholder="예) 010-1234-5678"
-            maxLength={40}
+            placeholder="예) 010-1234-5678 또는 톡 링크"
+            maxLength={300}
           />
+          {isSafeUrl(form.phone) ? (
+            <a className="contact-link" href={form.phone} target="_blank" rel="noopener noreferrer">
+              {form.phone}
+            </a>
+          ) : null}
         </Field>
       </section>
 
@@ -307,6 +329,13 @@ export function CampaignForm({
               aria-label="방문 종료 시간"
             />
           </div>
+          <input
+            value={form.visit_time_note}
+            onChange={(e) => set("visit_time_note", e.target.value)}
+            placeholder="예) 평일, 주말 11:00–20:00 / 공휴일 방문 불가"
+            maxLength={300}
+            aria-label="방문 시간 안내"
+          />
         </Field>
         <div className="two-col">
           <Field label="방문 예약일" auto={isAuto("visit_date")}>

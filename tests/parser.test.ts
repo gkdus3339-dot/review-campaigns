@@ -213,7 +213,7 @@ https://www.revu.net/campaign/123456`,
   assert.equal(fields.visit_time_end, "15:00");
   assert.equal(fields.visit_start, "2026-11-15");
   assert.equal(fields.visit_end, "2026-11-30");
-  assert.match(fields.mission ?? "", /^1\. 제목에 '연남동 파스타'/);
+  assert.match(fields.mission ?? "", /1\. 제목에 '연남동 파스타'/);
   assert.match(fields.mission ?? "", /사진은 15장 이상/);
   assert.match(fields.mission ?? "", /음식, 외관, 메뉴판/);
   assert.match(fields.mission ?? "", /쓰지 마세요/);
@@ -239,6 +239,81 @@ https://dinnerqueen.net/taste/12345`,
   assert.equal(fields.visit_time_end, "15:00");
   assert.match(fields.mission ?? "", /^1\. 제목 키워드/);
   assert.match(fields.mission ?? "", /2\. 인스타 태그 후 좋아요와 팔로우/);
+});
+
+test("링블 win message keeps the talk link, hours, deadline, and mission text", () => {
+  const message = `[링블 당첨자 발표 안내]
+
+축하드립니다!
+
+김하연님이 신청하신 [블로그] [서울/마포구] 홍대향수공방 닷노트[서울/마포구] 홍대향수공방 닷노트에 선정되셨습니다.
+https://www.ringble.co.kr/detail.php?number=285524
+
+<안내사항>
+- 제공내역 : 위 링크 참조
+- 리뷰 마감 기한 : ~11.27(금) 까지
+- 방문가능시간 : 평일, 주말 11:00 ~ 20:00 에만 방문 가능 / 공휴일 방문 불가
+- 위치 : 서울 마포구 신촌로4길 14, 2층 닷노트
+★당첨일로부터 1~2일 안에 업체와 예약 조율 필수★
+※ 예약 문의 : 네이버톡톡 https://talk.naver.com/W5TNNQ
+※ 네이버 예약 후 페이백으로 진행됩니다. 리뷰 작성 후 업체 안내에 따라 제공된 환급 신청서를 제출하세요.
+
+<필독사항>
+당일 취소하거나 사전에 연락없이 방문하지 않는 경우, 추후 사이트 이용 제한 및 당첨자 선정에서 제외될 수 있습니다.
+
+<리뷰작성안내>
+- 후기 작성 가이드(링크페이지 참조) 확인 후 작성을 해주세요.
+- 후기 작성 후 반드시 링블 사이트에 등록해주세요!
+※ 로그인 > 마이페이지 > 리뷰등록하기
+
+★ 안내받으신 방법으로 업체 방문일 예약 후, 확정일을 [로그인- 마이페이지- 신청한 체험단] 에 기입해주세요`;
+  const page = `모집 기간 26년 11월 04일(수) ~ 26년 11월 10일(화) 리뷰 등록 기간 26년 11월 12일(목) ~ 26년 11월 27일(금) 제공내역.NOTE 원데이 클래스 50ml (10만원 상당) 유의사항 ※ 최대 2인까지 방문 가능 리뷰어 미션 필수 키워드: 서울 홍대 향수공방 위 키워드를 제목에는 1회, 본문에는 5회 이상 넣어주세요. ※ 키워드 미션이 지켜지지 않을 경우 수정요청될 수 있습니다. 1.리뷰 제목에는 매장명(닷노트)을 반드시 적어주세요. 2.사진은 15장 이상 첨부해주세요. - (필수) 향수병과 롤온패키지를 각각 따로 찍은 사진 3. 강의 내용 자세한 소개 X 6. (필수) 구글 지도 리뷰 작성 : https://maps.app.goo.gl/x9QYwP3zJgocMLFg6 7. @dotnote.perfume 인스타 팔로우 해주세요 8. @dotnote.perfume 인스타 게시물 중 5개를 선택하여 '좋아요'를 눌러주세요. 1. 별도의 사유 없이 리뷰등록기간 내 리뷰를 작성하지 않을 경우 포인트 차감과 비용이 청구될 수 있습니다. 사업자 등록번호 : 863-81-01942`;
+  const today = { today: "2026-11-16", platforms: DEFAULT_PLATFORMS };
+  const messageOnly = parseWinMessage(message, today).fields;
+  assert.equal(messageOnly.platform, "링블");
+  assert.equal(messageOnly.business_name, "홍대향수공방 닷노트");
+  assert.equal(messageOnly.offer, "위 링크 참조");
+  assert.equal(messageOnly.amount, undefined);
+  assert.equal(messageOnly.phone, "https://talk.naver.com/W5TNNQ");
+  assert.equal(messageOnly.visit_time_start, "11:00");
+  assert.equal(messageOnly.visit_time_end, "20:00");
+  assert.match(messageOnly.visit_time_note ?? "", /평일, 주말 11:00 ~ 20:00/);
+  assert.match(messageOnly.visit_time_note ?? "", /공휴일 방문 불가/);
+  assert.equal(messageOnly.visit_start, undefined);
+  assert.equal(messageOnly.visit_end, undefined);
+  assert.equal(messageOnly.visit_date, undefined);
+  assert.equal(messageOnly.deadline, "2026-11-27");
+  assert.match(messageOnly.region ?? "", /신촌로4길 14/);
+  assert.match(messageOnly.mission ?? "", /예약 조율 필수/);
+  assert.match(messageOnly.mission ?? "", /https:\/\/talk\.naver\.com\/W5TNNQ/);
+  assert.match(messageOnly.mission ?? "", /필독사항/);
+  assert.match(messageOnly.mission ?? "", /당일 취소하거나/);
+  assert.match(messageOnly.mission ?? "", /리뷰작성안내/);
+  assert.match(messageOnly.mission ?? "", /링크페이지 참조/);
+  assert.match(messageOnly.mission ?? "", /마이페이지/);
+  assert.match(messageOnly.mission ?? "", /신청한 체험단/);
+
+  const { fields } = parseWinMessage(message, { ...today, pages: [{ url: "https://www.ringble.co.kr/detail.php?number=285524", text: page }] });
+  assert.equal(fields.platform, "링블");
+  assert.equal(fields.offer, ".NOTE 원데이 클래스 50ml (10만원 상당)");
+  assert.equal(fields.amount, 100000);
+  assert.equal(fields.phone, "https://talk.naver.com/W5TNNQ");
+  assert.equal(fields.keywords, "서울 홍대 향수공방");
+  assert.equal(fields.visit_start, undefined);
+  assert.equal(fields.visit_end, undefined);
+  assert.equal(fields.deadline, "2026-11-27");
+  assert.match(fields.visit_time_note ?? "", /공휴일 방문 불가/);
+  assert.match(fields.mission ?? "", /https:\/\/talk\.naver\.com\/W5TNNQ/);
+  assert.match(fields.mission ?? "", /필독사항/);
+  assert.match(fields.mission ?? "", /매장명\(닷노트\)/);
+  assert.match(fields.mission ?? "", /15장 이상/);
+  assert.match(fields.mission ?? "", /리뷰등록기간 내/);
+  assert.equal(fields.mission?.includes("리뷰등록기간:"), false);
+  assert.match(fields.mission ?? "", /향수병과 롤온패키지/);
+  assert.match(fields.mission ?? "", /https:\/\/maps\.app\.goo\.gl\/x9QYwP3zJgocMLFg6/);
+  assert.match(fields.mission ?? "", /인스타 팔로우/);
+  assert.match(fields.mission ?? "", /좋아요/);
+  assert.equal(fields.mission?.includes("863-81-01942"), false);
 });
 
 test("empty or unrelated text yields nothing harmful", () => {

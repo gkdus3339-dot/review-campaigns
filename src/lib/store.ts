@@ -74,6 +74,15 @@ function asCampaign(value: unknown): Campaign | null {
   }
 }
 
+export function ensurePlatform(list: string[], name: string): string[] {
+  if (!name || list.includes(name)) return list;
+  const next = list.slice();
+  const etc = next.indexOf("기타");
+  if (etc >= 0) next.splice(etc, 0, name);
+  else next.push(name);
+  return next;
+}
+
 export function loadLocal(): Stored {
   return read();
 }

@@ -24,6 +24,7 @@
     visit_end: "방문 종료일",
     visit_time_start: "방문 시작 시간",
     visit_time_end: "방문 종료 시간",
+    visit_time_note: "방문 시간 안내",
     visit_date: "방문 예약일",
     deadline: "리뷰 마감일",
     won_date: "당첨일",
@@ -83,7 +84,7 @@ https://www.revu.net/campaign/123456`;
   function linkify(text) {
     return String(text).split(/(https?:\/\/[^\s<>"']+)/gi).map((part) => {
       if (!/^https?:\/\//i.test(part)) return esc(part);
-      const href = part.replace(/[),.;]+$/, "");
+      const href = part.replace(/[),.;]+$/, "").replace(/[가-힣]+$/u, "");
       const trail = part.slice(href.length);
       if (!RN.isSafeUrl(href)) return esc(part);
       return `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>${esc(trail)}`;
@@ -122,7 +123,8 @@ https://www.revu.net/campaign/123456`;
     try {
       const stored = RN.loadLocal();
       state.campaigns = stored.campaigns;
-      state.platforms = stored.platforms;
+      const platforms = RN.ensurePlatform(stored.platforms, "링블");
+      state.platforms = platforms.join("\n") === stored.platforms.join("\n") ? stored.platforms : RN.savePlatformsLocal(platforms);
       state.error = null;
     } catch (error) {
       state.error = error instanceof Error ? error.message : "불러오지 못했습니다";
@@ -382,7 +384,7 @@ https://www.revu.net/campaign/123456`;
     const auto = (key) => viewState.auto.has(key);
     const platforms = form.platform && !state.platforms.includes(form.platform) ? state.platforms.concat(form.platform) : state.platforms;
     const categories = form.category && !RN.CATEGORIES.includes(form.category) ? RN.CATEGORIES.concat(form.category) : RN.CATEGORIES.slice();
-    const paste = `<section class="card paste${viewState.pasteOpen ? " open" : ""}"><button type="button" class="paste-head" data-action="toggle-paste" aria-expanded="${viewState.pasteOpen ? "true" : "false"}"><span class="paste-icon">${icons.clipboard(20)}</span><span class="paste-title"><strong>당첨 메시지 붙여넣기</strong><span class="muted small">문자·카톡·메일 내용을 붙여넣으면 자동으로 채워져요</span></span>${icons.down(18)}</button>${viewState.pasteOpen ? `<div class="paste-body"><textarea id="paste-box" rows="7" aria-label="당첨 메시지" placeholder="예) [레뷰] 캠페인 선정 안내&#10;■ 제공내역 : 2인 코스 (6만원 상당)&#10;■ 방문기간 : 11.15 ~ 11.30&#10;■ 리뷰 마감 : 12.07">${esc(viewState.message)}</textarea><div class="row gap wrap"><button type="button" class="btn primary" id="parse-btn" data-action="parse" ${viewState.message.trim() ? "" : "disabled"}>${icons.spark(18)} 자동 채우기</button><button type="button" class="btn" data-action="clipboard">클립보드에서 붙여넣기</button><button type="button" class="btn ghost small" data-action="sample">예시로 해보기</button></div></div>` : ""}</section>`;
+    const paste = `<section class="card paste${viewState.pasteOpen ? " open" : ""}"><button type="button" class="paste-head" data-action="toggle-paste" aria-expanded="${viewState.pasteOpen ? "true" : "false"}"><span class="paste-icon">${icons.clipboard(20)}</span><span class="paste-title"><strong>당첨 메시지 붙여넣기</strong><span class="muted small">문자·카톡·메일 내용을 붙여넣으면 자동으로 채워져요</span></span>${icons.down(18)}</button>${viewState.pasteOpen ? `<div class="paste-body"><textarea id="paste-box" rows="7" aria-label="당첨 메시지" placeholder="예) [레뷰] 캠페인 선정 안내&#10;■ 제공내역 : 2인 코스 (6만원 상당)&#10;■ 방문기간 : 11.15 ~ 11.30&#10;■ 리뷰 마감 : 12.07">${esc(viewState.message)}</textarea><div class="row gap wrap"><button type="button" class="btn primary" id="parse-btn" data-action="parse" ${viewState.message.trim() && !viewState.parsing ? "" : "disabled"}>${icons.spark(18)} ${viewState.parsing ? "읽는 중..." : "자동 채우기"}</button><button type="button" class="btn" data-action="clipboard">클립보드에서 붙여넣기</button><button type="button" class="btn ghost small" data-action="sample">예시로 해보기</button></div></div>` : ""}</section>`;
     const note = viewState.parseNote ? `<p class="parse-note" role="status">${icons.spark(16)} ${esc(viewState.parseNote)}</p>` : "";
     const basics = `<section class="card fields">${field({
       label: "체험단",
@@ -423,7 +425,7 @@ https://www.revu.net/campaign/123456`;
       label: "연락할 번호",
       auto: auto("phone"),
       autoKey: "phone",
-      body: `<input id="f-phone" data-field="phone" type="tel" inputmode="tel" value="${esc(form.phone)}" placeholder="예) 010-1234-5678" maxlength="40">`,
+      body: `<input id="f-phone" data-field="phone" type="text" inputmode="text" value="${esc(form.phone)}" placeholder="예) 010-1234-5678 또는 톡 링크" maxlength="300">${form.phone && RN.isSafeUrl(form.phone) ? `<a class="contact-link" href="${esc(form.phone)}" target="_blank" rel="noopener noreferrer">${esc(form.phone)}</a>` : ""}`,
     })}</section>`;
     const dates = `<section class="card fields">${field({
       label: "방문 가능 기간",
@@ -435,7 +437,7 @@ https://www.revu.net/campaign/123456`;
       auto: auto("visit_time_start") || auto("visit_time_end"),
       autoKey: "visit_time_start visit_time_end",
       hint: "예) 11:00–15:00",
-      body: `<div class="date-range"><input id="f-visit_time_start" data-field="visit_time_start" type="time" value="${esc(form.visit_time_start ?? "")}" aria-label="방문 시작 시간"><span>~</span><input id="f-visit_time_end" data-field="visit_time_end" type="time" value="${esc(form.visit_time_end ?? "")}" aria-label="방문 종료 시간"></div>`,
+      body: `<div class="date-range"><input id="f-visit_time_start" data-field="visit_time_start" type="time" value="${esc(form.visit_time_start ?? "")}" aria-label="방문 시작 시간"><span>~</span><input id="f-visit_time_end" data-field="visit_time_end" type="time" value="${esc(form.visit_time_end ?? "")}" aria-label="방문 종료 시간"></div><input id="f-visit_time_note" data-field="visit_time_note" value="${esc(form.visit_time_note)}" placeholder="예) 평일, 주말 11:00–20:00 / 공휴일 방문 불가" maxlength="300">`,
     })}<div class="two-col">${field({
       label: "방문 예약일",
       auto: auto("visit_date"),
@@ -613,12 +615,20 @@ https://www.revu.net/campaign/123456`;
     const steps = RN.FLOW_STATUSES.map((status, index) => `<li class="${index < stepIndex ? "past" : ""}${index === stepIndex ? " current" : ""}"><button type="button" data-action="flow-status" data-value="${esc(status)}" ${viewState.busy ? "disabled" : ""}><span class="step-dot">${index + 1}</span><span class="step-label">${esc(status)}</span></button></li>`).join("");
     const visitRange = RN.formatRange(campaign.visit_start, campaign.visit_end);
     const timeRange = RN.formatTimeRange(campaign.visit_time_start, campaign.visit_time_end);
-    const phoneLink = campaign.phone && telHref(campaign.phone);
+    const phoneLink = campaign.phone && RN.isSafeUrl(campaign.phone)
+      ? `<a class="contact-link" href="${esc(campaign.phone)}" target="_blank" rel="noopener noreferrer">${esc(campaign.phone)}</a>`
+      : campaign.phone && telHref(campaign.phone)
+        ? `<a class="contact-link" href="${esc(telHref(campaign.phone))}">${esc(campaign.phone)}</a>`
+        : "";
+    const timeNote = campaign.visit_time_note ? `<span class="time-note">${esc(campaign.visit_time_note)}</span>` : "";
+    const timeValue = timeRange || campaign.visit_time_note
+      ? `${timeRange ? esc(timeRange) : ""}${timeNote}`
+      : '<span class="muted">미정</span>';
     const rows = [
       infoRow("체험단", campaign.platform ? esc(campaign.platform) : '<span class="muted">미정</span>'),
-      infoRow("연락할 번호", phoneLink ? `<a class="icon-link" href="${esc(phoneLink)}">${esc(campaign.phone)}</a>` : '<span class="muted">미정</span>'),
+      infoRow("연락할 번호", phoneLink || '<span class="muted">미정</span>'),
       infoRow("방문 가능 기간", `${visitRange ? esc(visitRange) : '<span class="muted">미정</span>'}${visitOpen && !campaign.visit_date && campaign.visit_end ? ddayBadge(campaign.visit_end, state.today) : ""}`),
-      infoRow("방문 가능 시간", timeRange ? esc(timeRange) : '<span class="muted">미정</span>'),
+      infoRow("방문 가능 시간", timeValue),
       infoRow("방문 예약일", `${campaign.visit_date ? esc(RN.formatShort(campaign.visit_date)) : '<span class="muted">미정</span>'}${visitOpen && campaign.visit_date ? ddayBadge(campaign.visit_date, state.today) : ""}`),
       infoRow("리뷰 마감일", `${campaign.deadline ? esc(RN.formatShort(campaign.deadline)) : '<span class="muted">미정</span>'}${reviewOpen && campaign.deadline ? ddayBadge(campaign.deadline, state.today) : ""}`),
     ];
@@ -732,8 +742,27 @@ https://www.revu.net/campaign/123456`;
     }
   }
 
-  function applyParse(text) {
-    const parsed = RN.parseWinMessage(text, { today: state.today, platforms: state.platforms });
+  async function applyParse(text) {
+    if (viewState.parsing) return;
+    viewState.parsing = true;
+    viewState.message = text;
+    viewState.parseNote = "메시지와 안의 링크를 읽고 있어요...";
+    render();
+    let pages = [];
+    let failed = [];
+    try {
+      const loaded = await RN.loadLinkedPages(text);
+      pages = loaded.pages;
+      failed = loaded.failed;
+    } catch {
+      failed = [];
+    }
+    if (!viewState.form) {
+      viewState.parsing = false;
+      return;
+    }
+    const parsed = RN.parseWinMessage(text, { today: state.today, platforms: state.platforms, pages });
+    viewState.parsing = false;
     if (parsed.filled.length === 0) {
       viewState.parseNote = "인식된 항목이 없어요. 메시지를 확인하거나 직접 입력해 주세요.";
       viewState.message = text;
@@ -746,7 +775,8 @@ https://www.revu.net/campaign/123456`;
     }
     viewState.auto = new Set(parsed.filled);
     const names = parsed.filled.map((key) => FIELD_LABEL[key]).filter(Boolean);
-    viewState.parseNote = `${names.length}개 항목을 채웠어요: ${names.join(", ")}. 아래에서 확인 후 저장하세요.`;
+    const missed = failed.length ? ` 이 링크는 읽지 못했습니다: ${failed.join(", ")}.` : "";
+    viewState.parseNote = `${names.length}개 항목을 채웠어요: ${names.join(", ")}.${missed} 아래에서 확인 후 저장하세요.`;
     viewState.pasteOpen = false;
     viewState.message = text;
     render();

@@ -12,6 +12,7 @@ export const CAMPAIGN_FIELDS: (keyof CampaignInput)[] = [
   "visit_end",
   "visit_time_start",
   "visit_time_end",
+  "visit_time_note",
   "visit_date",
   "deadline",
   "won_date",

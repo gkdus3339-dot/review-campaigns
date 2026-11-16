@@ -14,6 +14,7 @@ const files = [
   "src/lib/events.ts",
   "src/lib/stats.ts",
   "src/lib/parser.ts",
+  "src/lib/fetch-pages.ts",
 ];
 
 const parts = [];
@@ -68,6 +69,7 @@ const names = [
   "updateLocal",
   "removeLocal",
   "savePlatformsLocal",
+  "ensurePlatform",
   "campaignEvents",
   "EVENT_LABEL",
   "upcomingEvents",
@@ -76,6 +78,7 @@ const names = [
   "recentMonths",
   "yearSummary",
   "parseWinMessage",
+  "loadLinkedPages",
 ];
 
 let body = parts.join("\n");

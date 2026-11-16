@@ -6,6 +6,8 @@ export interface ParseOptions {
   today: string;
   /** The user's platform names, matched in the text in addition to the built-in ones. */
   platforms?: string[];
+  /** Text already fetched from http(s) links inside the message. */
+  pages?: { url: string; text: string }[];
 }
 
 export interface ParseResult {
@@ -35,7 +37,7 @@ const MULTILINE_FIELDS = new Set<FieldKey>(["offer", "keywords", "guide"]);
 
 const LABELS: [FieldKey, string][] = [
   ["platform", "플랫폼"],
-  ["phone", "연락할\\s*번호|연락\\s*처|전화\\s*번호|전화번호|휴대폰\\s*번호|휴대폰|핸드폰|휴대\\s*전화|문의\\s*(?:전화|번호)"],
+  ["phone", "연락할\\s*번호|연락\\s*처|전화\\s*번호|전화번호|휴대폰\\s*번호|휴대폰|핸드폰|휴대\\s*전화|예약\\s*문의|문의\\s*(?:전화|번호)|네이버\\s*톡톡|톡톡"],
   ["business", "업체\\s*명|상호\\s*명?|매장\\s*명|가게\\s*명|캠페인\\s*명|브랜드\\s*명?|체험단\\s*명|업체|매장"],
   ["link", "캠페인\\s*(?:링크|주소|URL|상세)|상세\\s*(?:페이지|링크)|링크|URL"],
   ["amount", "제공\\s*금액|제공\\s*가격?|상당\\s*금액|금액|가격|정가"],
@@ -99,6 +101,7 @@ const KNOWN_PLATFORMS: PlatformDef[] = [
   { name: "미블", re: /미블/, domain: /mrblog\.net/i },
   { name: "서울오빠", re: /서울오빠/, domain: /seoulouba\.co\.kr/i },
   { name: "리뷰플레이스", re: /리뷰플레이스/, domain: /reviewplace\.co\.kr/i },
+  { name: "링블", re: /링블|\bringble\b/i, domain: /ringble\.co\.kr/i },
 ];
 
 const CATEGORY_RULES: [string, RegExp][] = [
@@ -437,6 +440,29 @@ function firstPhone(text: string): string | null {
   return match ? formatPhone(match[0]) : null;
 }
 
+function firstUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s<>"'()[\]]+/i);
+  if (!match) return null;
+  return match[0].replace(/[),.;]+$/, "").replace(/[가-힣]+$/u, "");
+}
+
+function contactFromLine(line: string): string | null {
+  const phone = firstPhone(line);
+  const url = firstUrl(line);
+  if (phone) return phone;
+  return url;
+}
+
+function findContact(text: string): string | null {
+  const lines = text.split("\n");
+  const ranked = lines.filter((line) => /문의|전화|연락|예약|톡톡|카톡|카카오/.test(line));
+  for (const line of ranked) {
+    const contact = contactFromLine(line);
+    if (contact) return contact;
+  }
+  return findPhone(text);
+}
+
 function findPhone(text: string): string | null {
   const lines = text.split("\n");
   const ranked = lines
@@ -538,44 +564,182 @@ function trimBlock(lines: string[]): string {
   return lines.slice(start, end).join("\n").slice(0, 8000);
 }
 
-/** The 미션 heading, or a block of numbered instructions, kept as written. */
+function headingName(line: string): string | null {
+  const stripped = line
+    .trim()
+    .replace(/^[\s■□※★☆•·*▶►▷▸\-–—<【\[(]+/u, "")
+    .replace(/[>】\])\s]+$/u, "")
+    .trim();
+  if (/^(?:리뷰어\s*)?미션(?:\s|$|[:：])/.test(stripped)) return "mission";
+  if (/^리뷰\s*작성\s*안내/.test(stripped)) return "review";
+  if (/^필독/.test(stripped)) return "must";
+  return null;
+}
+
+function cutFooter(text: string): string {
+  return text.split(/이용약관|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책/i)[0].trim();
+}
+function isFooter(line: string): boolean {
+  return /이용약관|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책/i.test(line);
+}
+
+function uniqueChunks(chunks: string[]): string {
+  const kept: string[] = [];
+  const overlaps = (longer: string, shorter: string) => {
+    if (longer.includes(shorter)) return true;
+    const needle = shorter.slice(0, 80).trim();
+    return needle.length > 40 && longer.includes(needle);
+  };
+  for (const chunk of chunks.map((item) => item.trim()).filter(Boolean)) {
+    if (kept.some((item) => overlaps(item, chunk))) continue;
+    for (let i = kept.length - 1; i >= 0; i--) {
+      if (overlaps(chunk, kept[i])) kept.splice(i, 1);
+    }
+    kept.push(chunk);
+  }
+  return cutFooter(kept.join("\n\n")).slice(0, 8000);
+}
+
+/** 미션, 리뷰작성안내, 필독, 예약 조율, or numbered instructions, kept as written. */
 function extractMission(rawLines: string[]): { text: string; indexes: number[] } | null {
   const trimmed = rawLines.map((line) => line.trim());
-  const head = trimmed.findIndex((line) => /^미션\b/.test(line.replace(/^[\s■□※•·*▶►▷▸\-–—]+/u, "")));
-  if (head >= 0) {
-    const indexes = [head];
-    const inline = trimmed[head].replace(/^[\s■□※•·*▶►▷▸\-–—]+/u, "").replace(/^미션\s*[:：]?\s*/, "");
-    const body: string[] = [];
-    if (inline) body.push(inline);
-    for (let i = head + 1; i < trimmed.length; i++) {
+  const indexes = new Set<number>();
+  const chunks: string[] = [];
+
+  for (let i = 0; i < trimmed.length; i++) {
+    if (!/예약\s*조율/.test(trimmed[i])) continue;
+    const block = [trimmed[i]];
+    indexes.add(i);
+    for (let j = i + 1; j < trimmed.length; j++) {
+      const line = trimmed[j];
+      if (!line) {
+        const next = trimmed.slice(j + 1).find(Boolean);
+        if (!next || headingName(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
+        block.push(line);
+        indexes.add(j);
+        continue;
+      }
+      if (headingName(line) || isFooter(line)) break;
+      const labeled = matchLabel(cleanLine(line));
+      if (labeled && labeled.field !== "phone" && !STEP_RE.test(line) && !/^https?:\/\//i.test(line)) break;
+      if (/^[※★☆]/.test(line) || /예약|문의|페이백|환급|톡톡/.test(line) || labeled?.field === "phone") {
+        block.push(line);
+        indexes.add(j);
+        continue;
+      }
+      break;
+    }
+    chunks.push(trimBlock(block));
+  }
+
+  for (let i = 0; i < trimmed.length; i++) {
+    if (!headingName(trimmed[i]) || indexes.has(i)) continue;
+    const block = [trimmed[i]];
+    indexes.add(i);
+    for (let j = i + 1; j < trimmed.length; j++) {
+      const line = trimmed[j];
+      if (!line) {
+        const next = trimmed.slice(j + 1).find(Boolean);
+        if (!next || /^https?:\/\//i.test(next) || headingName(next) || isFooter(next)) break;
+      } else if (headingName(line) || isFooter(line)) {
+        break;
+      }
+      block.push(line);
+      indexes.add(j);
+    }
+    chunks.push(trimBlock(block));
+  }
+
+  const steps = trimmed.map((line, index) => (STEP_RE.test(line) ? index : -1)).filter((index) => index >= 0);
+  if (steps.length >= 2 && !steps.every((index) => indexes.has(index))) {
+    const from = steps[0];
+    let to = steps[steps.length - 1];
+    for (let i = to + 1; i < trimmed.length; i++) {
       const line = trimmed[i];
       if (!line) {
         const next = trimmed.slice(i + 1).find(Boolean);
-        if (!next || /^https?:\/\//i.test(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
-      } else if (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line)) {
+        if (!next || /^https?:\/\//i.test(next) || isFooter(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
+      } else if (isFooter(line) || (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line))) {
         break;
       }
-      body.push(trimmed[i]);
-      indexes.push(i);
+      to = i;
     }
-    const text = trimBlock(body);
-    if (text) return { text, indexes };
+    chunks.push(trimBlock(trimmed.slice(from, to + 1)));
+    for (let i = from; i <= to; i++) indexes.add(i);
   }
-  const steps = trimmed.map((line, index) => (STEP_RE.test(line) ? index : -1)).filter((index) => index >= 0);
-  if (steps.length < 2) return null;
-  const from = steps[0];
-  let to = steps[steps.length - 1];
-  for (let i = to + 1; i < trimmed.length; i++) {
-    const line = trimmed[i];
-    if (!line) {
-      const next = trimmed.slice(i + 1).find(Boolean);
-      if (!next || /^https?:\/\//i.test(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
-    } else if (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line)) {
-      break;
-    }
-    to = i;
+
+  const text = uniqueChunks(chunks);
+  if (!text) return null;
+  return { text, indexes: [...indexes] };
+}
+
+const PAGE_MARKERS = ["제공내역", "유의사항", "리뷰어 미션", "방문가능시간", "방문 가능 시간", "필수 키워드", "필독사항", "리뷰작성안내", "리뷰 작성 안내", "예약 문의"];
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+/** Turn fetched HTML or flattened reader text into lines the field parser can see. */
+export function tidyPageText(raw: string): string {
+  let text = decodeEntities(raw).replace(/\r\n?/g, "\n");
+  text = text.replace(/(이용약관|사업자\s*등록번호|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책)/gi, "\n$1");
+  if (/<\/?[a-z!]/i.test(text)) {
+    text = text
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|tr|li|h\d|table|section)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ");
   }
-  return { text: trimBlock(trimmed.slice(from, to + 1)), indexes: trimmed.slice(from, to + 1).map((_, offset) => from + offset) };
+  text = text
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label: string, url: string) => {
+      const name = label.trim();
+      if (!name || name === url || name.includes(url)) return url;
+      return `${name} ${url}`;
+    });
+  for (const word of PAGE_MARKERS) {
+    const pattern = word.replace(/\s+/g, "\\s*");
+    text = text.replace(new RegExp(`(${pattern})\\s*[:：]?`, "g"), "\n$1: ");
+  }
+  text = text
+    .replace(/([^\d\n])(\d{1,2})\.(?=[^\s\d])/g, "$1\n$2. ")
+    .replace(/([^\n])(\d{1,2})\.\s+(?=\S)/g, "$1\n$2. ")
+    .replace(/[ \t]*([※★])\s*/g, "\n$1 ")
+    .replace(/[ \t]+-\s+/g, "\n- ");
+  return text
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function pageIsUseful(text: string): boolean {
+  return /제공\s*내역|리뷰어\s*미션|필수\s*키워드|방문\s*가능\s*시간|필독|리뷰\s*작성\s*안내/.test(text);
+}
+
+function isPointer(value: string): boolean {
+  const compact = value.replace(/\s/g, "");
+  return compact.length <= 24 && /링크|참조|홈페이지/.test(compact);
+}
+
+function clipKeywordSource(raw: string): string {
+  return raw.split(/\s*위\s*키워드|\s*제목\s*에는|\s*본문\s*에는/)[0] ?? raw;
+}
+
+function joinMission(current: string | undefined, extra: string | undefined): string {
+  const left = (current ?? "").trim();
+  const right = (extra ?? "").trim();
+  if (!left) return right.slice(0, 8000);
+  if (!right || left.includes(right)) return left.slice(0, 8000);
+  if (right.includes(left)) return right.slice(0, 8000);
+  return `${left}\n\n${right}`.slice(0, 8000);
 }
 
 // ---------------------------------------------------------------------------
@@ -596,9 +760,12 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
   const missionIndexes = new Set(missionBlock?.indexes ?? []);
 
   for (let i = 0; i < lines.length; i++) {
-    if (missionIndexes.has(i)) continue;
     const line = lines[i];
     if (!line) continue;
+    if (missionIndexes.has(i)) {
+      const peek = matchLabel(line);
+      if (!peek || (peek.field !== "keywords" && peek.field !== "phone")) continue;
+    }
     const hit = matchLabel(line);
     if (!hit) continue;
     usedLines.add(i);
@@ -738,7 +905,7 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
 
   // Keywords
   const kw = labeled.get("keywords");
-  if (kw) set("keywords", normalizeKeywords(kw));
+  if (kw) set("keywords", normalizeKeywords(clipKeywordSource(kw)));
   else {
     const tagLine = lines.find((l) => (l.match(/#[^\s#,]+/g) ?? []).length >= 2);
     if (tagLine) set("keywords", normalizeKeywords(tagLine));
@@ -755,9 +922,12 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     set("visit_time_start", timeRange.start);
     set("visit_time_end", timeRange.end);
   }
+  if (labeledTime && /평일|주말|공휴일|휴무|불가|에만/.test(labeledTime)) {
+    set("visit_time_note", labeledTime.replace(/\s+/g, " ").trim().slice(0, 300));
+  }
 
   const labeledPhone = labeled.get("phone");
-  set("phone", (labeledPhone && firstPhone(labeledPhone)) || findPhone(text));
+  set("phone", (labeledPhone && contactFromLine(labeledPhone)) || findContact(text));
 
   // Guide: labeled guide plus notable unlabeled notes
   const guideParts: string[] = [];
@@ -787,5 +957,56 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
 
   if (fields.visit_date) set("status", "방문 예정");
 
-  return { fields, filled: Object.keys(fields) as (keyof CampaignInput)[] };
+  for (const page of options.pages ?? []) {
+    const facts = factsFromPage(page.text, today);
+    if (facts.offer && (!fields.offer || isPointer(String(fields.offer)))) {
+      fields.offer = facts.offer;
+      if (facts.amount != null) fields.amount = facts.amount;
+    }
+    if (!fields.keywords && facts.keywords) fields.keywords = facts.keywords;
+    if (facts.mission) fields.mission = joinMission(fields.mission, facts.mission);
+    if (!fields.phone && facts.phone) fields.phone = facts.phone;
+    if (!fields.visit_time_start && facts.visit_time_start && facts.visit_time_end) {
+      fields.visit_time_start = facts.visit_time_start;
+      fields.visit_time_end = facts.visit_time_end;
+    }
+    if (!fields.visit_time_note && facts.visit_time_note) fields.visit_time_note = facts.visit_time_note;
+    if (!fields.deadline && facts.deadline) fields.deadline = facts.deadline;
+    if (!fields.business_name && facts.business_name) fields.business_name = facts.business_name;
+    if (!fields.region && facts.region) fields.region = facts.region;
+    if (!fields.platform && facts.platform) fields.platform = facts.platform;
+    if (!fields.category && facts.category) fields.category = facts.category;
+  }
+
+  const filled = (Object.keys(fields) as (keyof CampaignInput)[]).filter((key) => {
+    const value = fields[key];
+    return value !== undefined && value !== "";
+  });
+  return { fields, filled };
+}
+
+function factsFromPage(text: string, today: string): Partial<CampaignInput> {
+  const tidy = tidyPageText(text);
+  if (!pageIsUseful(tidy)) return {};
+  const parsed = parseWinMessage(tidy, { today });
+  const facts: Partial<CampaignInput> = {};
+  if (parsed.fields.offer && !isPointer(parsed.fields.offer)) {
+    facts.offer = parsed.fields.offer;
+    const amount = pickAmount(parsed.fields.offer);
+    if (amount != null) facts.amount = amount;
+  }
+  if (parsed.fields.keywords) facts.keywords = parsed.fields.keywords;
+  if (parsed.fields.mission) facts.mission = parsed.fields.mission;
+  if (parsed.fields.phone && !/ringble\.co\.kr|nid\.naver|nidlogin/i.test(parsed.fields.phone)) facts.phone = parsed.fields.phone;
+  if (parsed.fields.visit_time_start && parsed.fields.visit_time_end) {
+    facts.visit_time_start = parsed.fields.visit_time_start;
+    facts.visit_time_end = parsed.fields.visit_time_end;
+  }
+  if (parsed.fields.visit_time_note) facts.visit_time_note = parsed.fields.visit_time_note;
+  if (parsed.fields.deadline) facts.deadline = parsed.fields.deadline;
+  if (parsed.fields.business_name) facts.business_name = parsed.fields.business_name;
+  if (parsed.fields.region) facts.region = parsed.fields.region;
+  if (parsed.fields.platform) facts.platform = parsed.fields.platform;
+  if (parsed.fields.category) facts.category = parsed.fields.category;
+  return facts;
 }

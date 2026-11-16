@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { todayISO } from "@/lib/dates";
-import { createLocal, loadLocal, removeLocal, savePlatformsLocal, updateLocal } from "@/lib/store";
+import { ensurePlatform, createLocal, loadLocal, removeLocal, savePlatformsLocal, updateLocal } from "@/lib/store";
 import { Campaign, CampaignInput, DEFAULT_PLATFORMS } from "@/lib/types";
 
 interface DataState {
@@ -39,8 +39,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(async () => {
     try {
       const stored = loadLocal();
+      const platforms = ensurePlatform(stored.platforms, "링블");
+      if (platforms.length !== stored.platforms.length) savePlatformsLocal(platforms);
       setCampaigns(stored.campaigns);
-      setPlatforms(stored.platforms);
+      setPlatforms(platforms);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "불러오지 못했습니다");
