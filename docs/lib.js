@@ -498,7 +498,7 @@ const LABELS = [
     ["address", "(?:매장|방문|업체|업장)\\s*(?:주소|위치)|주소|위치|지역|장소"],
     [
         "visitTime",
-        "방문\\s*가능\\s*시간|방문\\s*시간|운영\\s*시간|영업\\s*시간|이용\\s*가능\\s*시간|이용\\s*시간|예약\\s*가능\\s*시간",
+        "방문\\s*가능\\s*시간|방문\\s*시간|체험\\s*시간|운영\\s*시간|영업\\s*시간|이용\\s*가능\\s*시간|이용\\s*시간|예약\\s*가능\\s*시간",
     ],
     [
         "visitPeriod",
@@ -627,7 +627,8 @@ function findRanges(text, today) {
         if (sep) {
             const next = tokens[i + 1];
             const gap = text.slice(t.end, next?.start ?? t.end);
-            if (next && RANGE_SEP.test(gap) && gap.trim().length <= 3 + (gap.includes("부터") ? 2 : 0)) {
+            const gapWithoutYear = gap.replace(/20\d{2}\s*년?|\d{2}\s*년/g, "");
+            if (next && RANGE_SEP.test(gap) && gapWithoutYear.trim().length <= 3 + (gap.includes("부터") ? 2 : 0)) {
                 let end = next.iso;
                 if (end < t.iso && !/20\d{2}/.test(text.slice(next.start, next.end))) {
                     const d = parseISO(end);
@@ -638,7 +639,7 @@ function findRanges(text, today) {
                 continue;
             }
             // "11.15~30": same month, day only.
-            const dayOnly = after.slice(sep[0].length).match(/^(\d{1,2})(?!\s*[./\-월\d])\s*일?/);
+            const dayOnly = after.slice(sep[0].length).match(/^(\d{1,2})(?!\s*[./\-월\d년])\s*일?/);
             if (dayOnly) {
                 const s = parseISO(t.iso);
                 const iso = makeISO(s.getFullYear(), s.getMonth() + 1, Number(dayOnly[1]));
@@ -656,6 +657,65 @@ function findRanges(text, today) {
         singles.push(t);
     }
     return { ranges, singles };
+}
+function plainSchedule(line) {
+    return line.replace(/[#*`]/g, "").replace(/[:：]\s*$/u, "").trim();
+}
+function isMenuWord(value) {
+    const compact = value.replace(/\s+/g, "");
+    return compact.length > 0 && compact.length <= 12 && /^(?:로그인|회원가입|마이페이지|고객센터|제품|방문|인스타|유튜브|기자단|커뮤니티|마감임박|검색|홈|공지|스토리|리워드|꿀팁|안내|캠페인|뒤로가기|맛집보기)$/.test(compact);
+}
+function isScheduleHeading(line) {
+    return /^(?:신청\s*기간|모집\s*기간|발표\s*(?:날짜|일)|당첨자\s*발표일|리뷰\s*(?:등록\s*)?기간)$/.test(plainSchedule(line));
+}
+/** Date lines that belong to 신청/발표/리뷰 headings, so they are not a visit window. */
+function scheduleDateLines(lines, today) {
+    const skip = new Set();
+    for (let i = 0; i < lines.length; i++) {
+        if (!isScheduleHeading(lines[i]))
+            continue;
+        let seen = 0;
+        for (let j = i + 1; j < lines.length && seen < 8; j++) {
+            const line = plainSchedule(lines[j]);
+            if (!line)
+                continue;
+            seen++;
+            if (isScheduleHeading(lines[j]))
+                continue;
+            const found = findRanges(line, today);
+            if (found.ranges.length === 0 && found.singles.length === 0)
+                break;
+            skip.add(j);
+        }
+    }
+    return skip;
+}
+/** When 신청/발표/리뷰 headings are stacked above the dates, the last range is the review window. */
+function stackedReviewDeadline(lines, today) {
+    for (let i = lines.length - 1; i >= 0; i--) {
+        if (!/^리뷰\s*(?:등록\s*)?기간$/.test(plainSchedule(lines[i])))
+            continue;
+        const ranges = [];
+        let seen = 0;
+        for (let j = i + 1; j < lines.length && seen < 8; j++) {
+            const line = plainSchedule(lines[j]);
+            if (!line)
+                continue;
+            seen++;
+            if (isScheduleHeading(lines[j]))
+                continue;
+            const found = findRanges(line, today);
+            if (found.ranges.length === 0 && found.singles.length === 0) {
+                if (ranges.length)
+                    break;
+                continue;
+            }
+            ranges.push(...found.ranges);
+        }
+        if (ranges.length)
+            return ranges[ranges.length - 1].end;
+    }
+    return null;
 }
 function findAmounts(text) {
     const found = [];
@@ -733,7 +793,7 @@ function stripUrls(text) {
 function normalizeKeywords(raw) {
     const text = stripUrls(raw);
     const parts = text.includes("#")
-        ? (text.match(/#[^\s#,]+/g) ?? []).map((t) => t.slice(1))
+        ? (text.match(/#[^#\s,]+/g) ?? []).map((t) => t.slice(1))
         : text.split(/[,，、/\n·|]+/);
     const seen = [];
     for (const p of parts) {
@@ -832,7 +892,7 @@ function formatShopName(raw) {
     return name.replace(/\s*(?:크리에이터|체험단|캠페인|리뷰어|기자단|모집|선정|당첨)\s*$/u, "").trim();
 }
 function findBusinessInText(text) {
-    const quoted = /['‘"“「『《<]([^'’"”」』》>\n]{2,40})['’"”」』》>]/gu;
+    const quoted = /['‘"“「『《]([^'’"”」』》\n]{2,40})['’"”」』》]/gu;
     for (const m of text.matchAll(quoted)) {
         const after = text.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 20);
         if (/캠페인|체험단|선정|당첨|리뷰|기자단/.test(after))
@@ -847,12 +907,14 @@ function findBusinessInText(text) {
         return formatShopName(rb[2]);
     for (const line of text.split("\n")) {
         const heading = line.match(/^[ \t>*#\-]*[\[【]\s*([^\]】]{1,20})\s*[\]】]\s*([가-힣A-Za-z0-9*][^\n]{0,40}?)\s*$/u);
-        if (!heading || !isPlaceToken(heading[1]))
-            continue;
-        const shop = heading[2].replace(/[*_`]/g, "").trim();
-        if (!shop || isGreeting(shop) || /선정되|신청/.test(shop))
-            continue;
-        return formatShopName(`[${heading[1]}] ${shop}`);
+        if (heading && isPlaceToken(heading[1])) {
+            const shop = heading[2].replace(/[*_`]/g, "").trim();
+            if (shop && !isGreeting(shop) && !/선정되|신청/.test(shop))
+                return formatShopName(`[${heading[1]}] ${shop}`);
+        }
+        const stacked = shopFromBracketLine(line);
+        if (stacked)
+            return stacked;
     }
     const before = text.match(/([^\s\[\]【】!?.,]+(?:\s[^\s\[\]【】!?.,]+){0,2})\s*(?:체험단|캠페인)(?:에|이|의)?\s*(?:최종\s*)?(?:선정|당첨)/u);
     if (before) {
@@ -939,6 +1001,8 @@ function findPhone(text) {
     return null;
 }
 function clockHHMM(hour, minute, ampm) {
+    if (hour === 24 && minute === 0)
+        return "23:59";
     if (minute < 0 || minute > 59 || hour < 0 || hour > 23)
         return null;
     if (ampm && (hour < 1 || hour > 12))
@@ -1001,7 +1065,7 @@ function findTimeRange(text) {
         .map((line, index) => ({
         line,
         index,
-        score: /방문\s*가능\s*시간|방문\s*시간|운영\s*시간|영업\s*시간|이용\s*시간/.test(line) ? 2 : /시간|방문|운영|영업/.test(line) ? 1 : 0,
+        score: /방문\s*가능\s*시간|방문\s*시간|체험\s*시간|운영\s*시간|영업\s*시간|이용\s*시간/.test(line) ? 2 : /상담\s*시간|점심\s*시간/.test(line) ? 0 : /시간|방문|운영|영업/.test(line) ? 1 : 0,
     }))
         .sort((a, b) => b.score - a.score || a.index - b.index);
     for (const item of ranked) {
@@ -1189,7 +1253,7 @@ function decodeEntities(text) {
 function tidyPageText(raw) {
     let text = decodeEntities(raw).replace(/\r\n?/g, "\n");
     text = text.replace(/(이용약관|사업자\s*등록번호|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책)/gi, "\n$1");
-    text = text.split(/추천\s*캠페인\s*둘러보기|함께\s*하면\s*좋아요|관련\s*리뷰|맞춤\s*캠페인|캠페인\s*선정자만\s*확인/)[0];
+    text = text.split(/추천\s*캠페인\s*둘러보기|함께\s*하면\s*좋아요|관련\s*리뷰|맞춤\s*캠페인|캠페인\s*선정자만\s*확인|주목할\s*만한\s*인기\s*캠페인|오늘\s*새로\s*나온\s*캠페인|다른\s*캠페인\s*보기/)[0];
     text = text.replace(/키워드\s*작성\s*방법[\s\S]*?(?=필수\s*키워드\s*[:：])/g, "");
     if (/<\/?[a-z!]/i.test(text)) {
         text = text
@@ -1217,6 +1281,7 @@ function tidyPageText(raw) {
         .replace(/([^\n])(\d{1,2})\.\s+(?=\S)/g, "$1\n$2. ")
         .replace(/[ \t]*([※★])\s*/g, "\n$1 ")
         .replace(/(?<![시\d])[ \t]+-\s+/g, "\n- ");
+    text = text.split(/\n(?:이용약관|사업자\s*등록|Copyright|개인정보보호정책|개인정보처리방침)/i)[0] ?? text;
     return text
         .replace(/[ \t]+\n/g, "\n")
         .replace(/[ \t]{2,}/g, " ")
@@ -1224,7 +1289,27 @@ function tidyPageText(raw) {
         .trim();
 }
 function pageIsUseful(text) {
-    return /제공\s*내역|리뷰어\s*미션|캠페인\s*미션|필수\s*키워드|방문\s*(?:가능\s*)?시간|필독|리뷰\s*작성\s*안내|캠페인\s*명|예약\s*번호/.test(text);
+    return /제공\s*내역|리뷰어\s*미션|캠페인\s*미션|필수\s*키워드|방문\s*(?:가능\s*)?시간|필독|리뷰\s*작성\s*안내|캠페인\s*명|예약\s*번호|식사\s*체험|체험권|체험\s*시간|리뷰\s*(?:등록\s*)?기간|방문\s*위치/.test(text);
+}
+/** [서울 마포][클립] 바 페기스 → 바 페기스. Place brackets that are a single city stay in parentheses. */
+function shopFromBracketLine(line) {
+    const stripped = line.replace(/^[\s>*#\-]+/u, "").replace(/[*_`]/g, "").trim();
+    const brackets = [];
+    let rest = stripped;
+    for (let guard = 0; guard < 4; guard++) {
+        const match = rest.match(/^\[([^\]\n]{1,20})\]\s*(.*)$/u);
+        if (!match)
+            break;
+        brackets.push(match[1].trim());
+        rest = match[2].trim();
+    }
+    if (brackets.length === 0 || !brackets.some((token) => isPlaceToken(token)))
+        return null;
+    const shop = rest.replace(/\s*(?:\d+\s*차|크리에이터|체험단|캠페인|리뷰어|기자단|모집|선정|당첨|배너|섹션|이미지).*$/u, "").trim();
+    if (!shop || shop.length > 40 || isGreeting(shop) || /신청|캐러셀/.test(shop))
+        return null;
+    const place = brackets.find((token) => isPlaceToken(token) && token.length <= 8 && !/[\s/·]/.test(token));
+    return place && !shop.includes(place) ? `${shop} (${place})` : shop;
 }
 function isPointer(value) {
     const compact = value.replace(/\s/g, "");
@@ -1268,35 +1353,48 @@ function joinMission(current, extra) {
     return uniqueChunks([base, fresh]);
 }
 function pageRank(url) {
-    if (/bit\.ly|naver\.me|map\.|kko\.to|place\.map|pf\.kakao|instagram\.com/i.test(url))
+    if (isNoiseLink(url))
         return 0;
-    if (/\/campaign\/?\?|detail\.php|\/campaign\/\d/i.test(url))
-        return 3;
+    if (isTalkLink(url))
+        return 1;
     if (/\/user\/visit\//i.test(url))
         return 2;
-    if (KNOWN_PLATFORMS.some((platform) => platform.domain?.test(url)))
-        return 2;
-    return 1;
+    if (isCampaignLink(url))
+        return 3;
+    return 2;
 }
-function reservationPhone(text, phone) {
+function pageContact(text, phone) {
+    if (/ringble\.co\.kr|nid\.naver|nidlogin/i.test(phone))
+        return false;
     if (/^https?:\/\//i.test(phone))
         return /예약|문의|톡톡/.test(text);
     const digits = phone.replace(/\D/g, "");
+    if (/^1[568]\d{6,8}$/.test(digits))
+        return false;
     const lines = text.split("\n");
     for (let i = 0; i < lines.length; i++) {
         const window = lines.slice(Math.max(0, i - 2), i + 3).join(" ");
-        if (!/예약\s*(?:전화|번호|문의)|문의\s*(?:전화|번호)/.test(window))
+        const compact = window.replace(/\D/g, "");
+        if (!window.includes(phone) && !(digits.length >= 9 && compact.includes(digits)))
             continue;
-        if (/고객센터|사업자|기재/.test(window))
-            continue;
-        if (window.includes(phone) || (digits.length >= 9 && window.replace(/\D/g, "").includes(digits)))
+        if (/고객센터|사업자|대표\s*:|상담\s*시간|기재해/.test(window))
+            return false;
+        if (/예약|연락|전화|문의/.test(window))
             return true;
     }
     return false;
 }
 function composeTimeNote(text, labeled) {
-    if (labeled && /평일|주말|공휴일|휴무|에만/.test(labeled))
-        return labeled.replace(/\s+/g, " ").trim().slice(0, 300);
+    const closed = text
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0 && line.length < 80 && /휴무|공휴일\s*방문\s*불가/.test(line));
+    if (labeled && /평일|주말|공휴일|휴무|에만|월\s*~/.test(labeled)) {
+        const base = labeled.replace(/\s+/g, " ").trim();
+        if (closed && !base.includes(closed) && !/휴무|공휴일/.test(base))
+            return `${base} / ${closed}`.slice(0, 300);
+        return base.slice(0, 300);
+    }
     const source = `${labeled ?? ""}\n${text}`;
     const parts = [];
     if (/모든\s*요일/.test(source))
@@ -1373,7 +1471,9 @@ function parseWinMessage(input, options) {
             value = [value, ...extra].filter(Boolean).join("\n");
         if (hit.field === "keywords" || hit.field === "guide")
             blockedFromPlatformScan.add(i);
-        if (!value)
+        if (!value || isMenuWord(value))
+            continue;
+        if (hit.field === "address" && !/(?:로|길|동|읍|면|구|시|\d)/.test(value))
             continue;
         if (hit.field === "phone") {
             const reservation = /예약/.test(line);
@@ -1430,12 +1530,12 @@ function parseWinMessage(input, options) {
     if (amount === null && offer)
         amount = pickAmount(offer);
     if (amount === null) {
-        const offerish = lines.filter((l) => /상당|제공|식사권|이용권|숙박권|상품권|바우처|금액|정가|세트|코스/.test(l) && !PENALTY_RE.test(l));
+        const offerish = lines.filter((l) => /상당|제공|식사권|체험권|이용권|숙박권|상품권|바우처|금액|정가|세트|코스/.test(l) && !PENALTY_RE.test(l));
         amount = pickAmount(offerish.join("\n"));
         if (amount !== null && !offer) {
             const line = offerish.find((l) => findAmounts(l).length > 0 && !matchLabel(l));
             if (line)
-                set("offer", line);
+                set("offer", line.replace(/\*+/g, "").trim());
         }
     }
     if (amount === null)
@@ -1469,10 +1569,11 @@ function parseWinMessage(input, options) {
     if (won)
         set("won_date", findDates(won, today)[0]?.iso);
     // Dates from free text
+    const scheduleLines = scheduleDateLines(lines, today);
     const unlabeledDates = [];
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (!line)
+        if (!line || scheduleLines.has(i))
             continue;
         const hit = matchLabel(line);
         if (hit && DATE_FIELDS.has(hit.field))
@@ -1522,12 +1623,15 @@ function parseWinMessage(input, options) {
                 set("deadline", last);
         }
     }
+    const stackedReview = stackedReviewDeadline(lines, today);
+    if (stackedReview)
+        fields.deadline = stackedReview;
     // Keywords
     const kw = labeled.get("keywords");
     if (kw)
         set("keywords", normalizeKeywords(clipKeywordSource(kw)));
     else {
-        const tagLine = lines.find((l) => (l.match(/#[^\s#,]+/g) ?? []).length >= 2);
+        const tagLine = lines.find((l) => (l.match(/#[^#\s,]+/g) ?? []).length >= 2);
         if (tagLine)
             set("keywords", normalizeKeywords(tagLine));
     }
@@ -1596,10 +1700,14 @@ function parseWinMessage(input, options) {
             fields.keywords = facts.keywords;
         if (facts.phone && (prefer || !fields.phone))
             fields.phone = facts.phone;
+        if (facts.amount != null && (prefer || fields.amount == null))
+            fields.amount = facts.amount;
         if (facts.visit_time_start && facts.visit_time_end && (prefer || !fields.visit_time_start)) {
             fields.visit_time_start = facts.visit_time_start;
             fields.visit_time_end = facts.visit_time_end;
         }
+        if (facts.visit_time_note && (prefer || !fields.visit_time_note))
+            fields.visit_time_note = facts.visit_time_note;
         if (facts.deadline && (prefer || !fields.deadline))
             fields.deadline = facts.deadline;
         if (facts.region && /로|길|\d/.test(facts.region) && (prefer || !fields.region || !/로|길|\d/.test(String(fields.region)))) {
@@ -1627,9 +1735,12 @@ function factsFromPage(text, today) {
         return {};
     const parsed = parseWinMessage(tidy, { today });
     const facts = {};
-    if (parsed.fields.offer && !isWeakOffer(parsed.fields.offer)) {
+    if (parsed.fields.offer && !isWeakOffer(parsed.fields.offer))
         facts.offer = parsed.fields.offer;
-        const amount = pickAmount(parsed.fields.offer);
+    if (parsed.fields.amount != null)
+        facts.amount = parsed.fields.amount;
+    else if (facts.offer) {
+        const amount = pickAmount(facts.offer);
         if (amount != null)
             facts.amount = amount;
     }
@@ -1637,11 +1748,8 @@ function factsFromPage(text, today) {
         facts.keywords = parsed.fields.keywords;
     if (parsed.fields.mission)
         facts.mission = parsed.fields.mission;
-    if (parsed.fields.phone &&
-        reservationPhone(tidy, parsed.fields.phone) &&
-        !/ringble\.co\.kr|nid\.naver|nidlogin/i.test(parsed.fields.phone)) {
+    if (parsed.fields.phone && pageContact(tidy, parsed.fields.phone))
         facts.phone = parsed.fields.phone;
-    }
     if (parsed.fields.visit_time_start && parsed.fields.visit_time_end) {
         facts.visit_time_start = parsed.fields.visit_time_start;
         facts.visit_time_end = parsed.fields.visit_time_end;
@@ -1662,18 +1770,49 @@ function factsFromPage(text, today) {
 }
 
 /* src/lib/fetch-pages.ts */
-/** Read http(s) links from a win message. A reader fallback is used when the site blocks the browser. */
-async function loadLinkedPages(text) {
+const NOISE_LINK = /bit\.ly|bitly\.com|tinyurl\.com|(?:^|\/\/|\.)goo\.gl|t\.co\/|han\.gl|vo\.la|naver\.me|kko\.to|map\.naver|map\.kakao|maps\.google|maps\.app\.goo|place\.map|google\.com\/maps|instagram\.com|facebook\.com|youtube\.com|youtu\.be|blog\.naver|pf\.kakao|open\.kakao/i;
+const TALK_LINK = /talk\.naver\.com|nid\.naver\.com|nidlogin/i;
+const CAMPAIGN_LINK = /campaign|detail\.php|\/detail\/|\/taste\/|\/cp\/|[?&](?:c|number|id|idx)=/i;
+const PLATFORM_HOST = /revu\.net|dinnerqueen\.net|reviewnote\.co\.kr|mrblog\.net|seoulouba\.co\.kr|reviewplace\.co\.kr|ringble\.co\.kr|xn--939au0g4vj8sq|강남맛집\.net/i;
+function messageUrls(text) {
     const found = Array.from(text.matchAll(/https?:\/\/[^\s<>"'()[\]]+/gi), (match) => match[0].replace(/[.,!?)\]]+$/, ""));
-    const urls = [...new Set(found)];
+    return [...new Set(found)];
+}
+/** Instruction shorts, maps, and social profiles are not the campaign page. */
+function isNoiseLink(url) {
+    return NOISE_LINK.test(url);
+}
+function isTalkLink(url) {
+    return TALK_LINK.test(url);
+}
+/** A campaign homepage, including platforms other than the built-in list. */
+function isCampaignLink(url) {
+    if (isNoiseLink(url) || isTalkLink(url))
+        return false;
+    if (PLATFORM_HOST.test(url) || CAMPAIGN_LINK.test(url))
+        return true;
+    try {
+        const parsed = new URL(url);
+        return parsed.pathname.length > 1 || parsed.search.length > 1;
+    }
+    catch {
+        return false;
+    }
+}
+/** Read the campaign page inside a win message. Short links and login-only talk links are skipped. */
+async function loadLinkedPages(text) {
+    const urls = messageUrls(text).filter((url) => !isNoiseLink(url));
     const pages = [];
     const failed = [];
     await Promise.all(urls.map(async (url) => {
         try {
-            const text = await fetchReadable(url);
-            if (isLoginWall(text))
-                throw new Error("private");
-            pages.push({ url, text });
+            const body = await fetchReadable(url);
+            if (isLoginWall(body)) {
+                if (!isTalkLink(url))
+                    failed.push(url);
+                return;
+            }
+            pages.push({ url, text: body });
         }
         catch {
             failed.push(url);
@@ -1682,12 +1821,11 @@ async function loadLinkedPages(text) {
     return { pages, failed };
 }
 function isLoginWall(text) {
-    const compact = text.replace(/\s+/g, " ");
-    if (compact.length > 8000)
+    if (/제공\s*내역|제공내역|리뷰어\s*미션|캠페인\s*미션|예약\s*번호|방문\s*가능\s*시간|필수\s*키워드|식사\s*체험|리뷰\s*등록\s*기간|리뷰\s*기간/.test(text)) {
         return false;
-    if (/제공\s*내역|캠페인\s*미션|예약\s*번호|방문\s*시간|리뷰\s*기간/.test(compact))
-        return false;
-    return /비밀번호/.test(compact) && /로그인/.test(compact);
+    }
+    const compact = text.replace(/\s+/g, " ").slice(0, 5000);
+    return /로그인|sign in|log in/i.test(compact) && /비밀번호|password/i.test(compact);
 }
 async function fetchReadable(url) {
     const targets = /^https?:\/\/r\.jina\.ai\//i.test(url) ? [url] : [url, `https://r.jina.ai/${url}`];

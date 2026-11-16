@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { isCampaignLink, isNoiseLink, isTalkLink } from "../src/lib/fetch-pages";
 import { parseWinMessage } from "../src/lib/parser";
 import { DEFAULT_PLATFORMS } from "../src/lib/types";
 
@@ -383,6 +384,64 @@ test("서울오빠 trusts the campaign page and does not invent a price", () => 
   assert.match(fields.mission ?? "", /https:\/\/naver\.me\/5r33nq6J/);
   assert.equal(fields.mission?.includes("200,000"), false);
   assert.equal(fields.mission?.includes("김하연"), false);
+});
+
+test("any campaign page outranks the SMS, and login or short links do not", () => {
+  assert.equal(isNoiseLink("https://bit.ly/38xxUJx"), true);
+  assert.equal(isTalkLink("https://talk.naver.com/W5TNNQ"), true);
+  assert.equal(isCampaignLink("https://talk.naver.com/W5TNNQ"), false);
+  assert.equal(isCampaignLink("https://www.ringble.co.kr/detail.php?number=285524"), true);
+  assert.equal(isCampaignLink("https://seoulouba.co.kr/campaign/?c=434405"), true);
+  assert.equal(isCampaignLink("https://dinnerqueen.net/taste/1650058"), true);
+  assert.equal(isCampaignLink("https://shop.example.com/campaign/99"), true);
+
+  const message = `안녕하세요 디너의여왕입니다
+잘못된가게
+제공내역 : 위 링크 참조
+리뷰 마감 : ~11.30
+https://dinnerqueen.net/taste/1650058
+https://bit.ly/38xxUJx
+예약 문의 : https://talk.naver.com/W5TNNQ`;
+  const page = `#### **[서울 마포][클립] 바 페기스**
+###### **신청 기간**
+###### **발표 날짜**
+###### **리뷰 기간**
+**26.11.16 – 26.11.23**
+26.11.24
+26.11.25 – 26.12.09
+**4만원 식사체험권**
+체험 시간: 월~토 19:00~24:00
+휴무일: 매주 일요일 정기휴무
+**예약 문의 번호**는 선정 시 전달되는 초대권에서 확인합니다.
+방문 위치: 서울 마포구 서교동 396-4
+#협찬#합정바#합정칵테일바#합정혼술바
+1. 분량: 20초 이상
+2. 플레이스 연동이 포함된 장소 버튼을 넣습니다.
+3. 영상은 직접 촬영한 콘텐츠만 허용됩니다.
+사업자 등록번호 123-45-67890
+고객센터 1577-2943
+서울 강남구 테헤란로 37길 7`;
+  const { fields } = parseWinMessage(message, {
+    today: "2026-11-16",
+    platforms: DEFAULT_PLATFORMS,
+    pages: [{ url: "https://dinnerqueen.net/taste/1650058", text: page }],
+  });
+  assert.equal(fields.business_name, "바 페기스");
+  assert.equal(fields.offer, "4만원 식사체험권");
+  assert.equal(fields.amount, 40000);
+  assert.match(fields.region ?? "", /서교동 396-4/);
+  assert.equal(fields.region?.includes("테헤란로"), false);
+  assert.equal(fields.visit_time_start, "19:00");
+  assert.equal(fields.visit_time_end, "23:59");
+  assert.match(fields.visit_time_note ?? "", /월~토/);
+  assert.match(fields.visit_time_note ?? "", /일요일/);
+  assert.equal(fields.deadline, "2026-12-09");
+  assert.equal(fields.visit_start, undefined);
+  assert.equal(fields.keywords, "협찬, 합정바, 합정칵테일바, 합정혼술바");
+  assert.equal(fields.phone, "https://talk.naver.com/W5TNNQ");
+  assert.equal(fields.phone?.includes("1577"), false);
+  assert.equal((fields.mission ?? "").match(/20초 이상/g)?.length ?? 0, 1);
+  assert.equal(fields.campaign_url, "https://dinnerqueen.net/taste/1650058");
 });
 
 test("empty or unrelated text yields nothing harmful", () => {
