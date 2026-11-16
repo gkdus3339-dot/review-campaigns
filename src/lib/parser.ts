@@ -37,7 +37,7 @@ const MULTILINE_FIELDS = new Set<FieldKey>(["offer", "keywords", "guide"]);
 
 const LABELS: [FieldKey, string][] = [
   ["platform", "플랫폼"],
-  ["phone", "연락할\\s*번호|연락\\s*처|전화\\s*번호|전화번호|휴대폰\\s*번호|휴대폰|핸드폰|휴대\\s*전화|예약\\s*문의|문의\\s*(?:전화|번호)|네이버\\s*톡톡|톡톡"],
+  ["phone", "예약\\s*전화|예약\\s*번호|연락할\\s*번호|연락\\s*처|전화\\s*번호|전화번호|휴대폰\\s*번호|휴대폰|핸드폰|휴대\\s*전화|예약\\s*문의|문의\\s*(?:전화|번호)|네이버\\s*톡톡|톡톡"],
   ["business", "업체\\s*명|상호\\s*명?|매장\\s*명|가게\\s*명|캠페인\\s*명|브랜드\\s*명?|체험단\\s*명|업체|매장"],
   ["link", "캠페인\\s*(?:링크|주소|URL|상세)|상세\\s*(?:페이지|링크)|링크|URL"],
   ["amount", "제공\\s*금액|제공\\s*가격?|상당\\s*금액|금액|가격|정가"],
@@ -107,7 +107,7 @@ const KNOWN_PLATFORMS: PlatformDef[] = [
 const CATEGORY_RULES: [string, RegExp][] = [
   ["제품", /배송|택배|발송|수령|제품\s*체험|쿠팡|스마트스토어|정가/g],
   ["숙박", /숙박|호텔|펜션|리조트|글램핑|캠핑장|풀빌라|객실|1박|스테이|모텔|게스트\s*하우스|체크인/g],
-  ["뷰티", /헤어|펌|염색|네일|속눈썹|왁싱|피부|에스테틱|마사지|스파|두피|눈썹|미용실|살롱|뷰티|메이크업|세럼|화장품|피부과/g],
+  ["뷰티", /헤어|펌|염색|네일|속눈썹|왁싱|피부|에스테틱|마사지|스파|두피|문신|smp|눈썹|미용실|살롱|뷰티|메이크업|세럼|화장품|피부과/gi],
   ["카페", /카페|커피|디저트|베이커리|브런치|케이크|빵집|라떼/g],
   [
     "맛집",
@@ -155,6 +155,10 @@ const DATE_PATTERNS: { re: RegExp; kind: "ymd" | "yymd" | "md" }[] = [
   },
   {
     re: new RegExp(String.raw`(?<![\d.])(\d{2})\.(\d{1,2})\.(\d{1,2})(?![\d.])` + NOT_AMOUNT + WEEKDAY_SUFFIX, "gu"),
+    kind: "yymd",
+  },
+  {
+    re: new RegExp(String.raw`(?<!\d)(\d{2})-(\d{1,2})-(\d{1,2})(?!\d)` + WEEKDAY_SUFFIX, "gu"),
     kind: "yymd",
   },
   {
@@ -391,21 +395,64 @@ function detectPlatform(text: string, urls: string[], userPlatforms: string[]): 
   return first?.name ?? null;
 }
 
+function isGreeting(name: string): boolean {
+  return /안녕|입니다|축하|안내/.test(name);
+}
+
+/** A bracket such as [부천] or [서울/마포구], not a platform name like [서울오빠]. */
+function isPlaceToken(raw: string): boolean {
+  const name = raw.trim();
+  if (!name || name.length > 20) return false;
+  if (KNOWN_PLATFORMS.some((p) => p.re.test(name))) return false;
+  if (new RegExp(`^(?:${REGION_WORDS})(?:\\s*[\\/·]\\s*|\\s+)?\\S{0,12}$`).test(name)) return true;
+  if (/[가-힣]{2,}(?:시|군|구)$/.test(name) && name.length <= 10) return true;
+  return /^(?:부천|수원|성남|고양|용인|창원|청주|전주|천안|제주|강남|홍대|잠실|송파|마포|용산|성수|연남|해운대|서면|일산|분당|판교|송도|청라|김포|평택|화성|안양|안산|의정부|남양주|하남|광명|군포|시흥|파주|이천|오산|양주|구리|포천|동탄|부평|인천|대구|대전|광주|부산|울산)$/.test(name);
+}
+
+/** [부천] 플랫디 → 플랫디 (부천). A district like [서울/마포구] stays off the shop name. */
+function formatShopName(raw: string): string {
+  let name = raw.replace(/\s+/g, " ").trim().replace(/^(?:\[\d{3,}\]\s*)+/, "");
+  const nested = name.match(/^[\[【]\s*([^\]】]{1,20})\s*[\]】]\s*(.+)$/u);
+  if (nested && isPlaceToken(nested[1])) {
+    const shop = nested[2].replace(/\s*(?:크리에이터|체험단|캠페인|리뷰어|기자단|모집|선정|당첨).*$/u, "").trim();
+    const place = nested[1].trim();
+    if (shop && !isGreeting(shop)) {
+      if (place.length <= 8 && !/[\/·\s]/.test(place) && !shop.includes(place)) return `${shop} (${place})`;
+      return shop;
+    }
+  }
+  return name.replace(/\s*(?:크리에이터|체험단|캠페인|리뷰어|기자단|모집|선정|당첨)\s*$/u, "").trim();
+}
+
 function findBusinessInText(text: string): string | null {
-  const regionBracket = new RegExp(`[\\[【]\\s*(?:${REGION_WORDS})[^\\]】\\n]*[\\]】]\\s*([^\\n\\[\\]【】'"‘’“”]+?)\\s*(?:체험단|캠페인|리뷰어|기자단|모집|에\\s|이\\s|가\\s|선정|당첨|\\n|$)`, "u");
   const quoted = /['‘"“「『《<]([^'’"”」』》>\n]{2,40})['’"”」』》>]/gu;
   for (const m of text.matchAll(quoted)) {
     const after = text.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 20);
     if (/캠페인|체험단|선정|당첨|리뷰|기자단/.test(after)) return m[1].trim();
   }
+  const selected = text.match(
+    /[\[【]\s*([^\]】]{1,20})\s*[\]】]\s*([^\[\]【】\n'"‘’“”]{1,40}?)\s*(?:크리에이터|리뷰어|기자단|체험단)(?:로|으로)?\s*선정/u,
+  );
+  if (selected && isPlaceToken(selected[1]) && !isGreeting(selected[2])) return formatShopName(`[${selected[1]}] ${selected[2]}`);
+  const regionBracket = new RegExp(
+    `[\\[【]\\s*((?:${REGION_WORDS})[^\\]】\\n]{0,20})[\\]】]\\s*([^\\n\\[\\]【】'"‘’“”]{2,40}?)\\s*(?:체험단|캠페인|리뷰어|기자단|모집|에\\s|이\\s|가\\s|선정|당첨|\\n|$)`,
+    "u",
+  );
   const rb = text.match(regionBracket);
-  if (rb && rb[1].trim().length >= 2) return rb[1].trim();
+  if (rb && isPlaceToken(rb[1]) && rb[2].trim().length >= 2 && !isGreeting(rb[2])) return formatShopName(rb[2]);
+  for (const line of text.split("\n")) {
+    const heading = line.match(/^[ \t>*#\-]*[\[【]\s*([^\]】]{1,20})\s*[\]】]\s*([가-힣A-Za-z0-9*][^\n]{0,40}?)\s*$/u);
+    if (!heading || !isPlaceToken(heading[1])) continue;
+    const shop = heading[2].replace(/[*_`]/g, "").trim();
+    if (!shop || isGreeting(shop) || /선정되|신청/.test(shop)) continue;
+    return formatShopName(`[${heading[1]}] ${shop}`);
+  }
   const before = text.match(/([^\s\[\]【】!?.,]+(?:\s[^\s\[\]【】!?.,]+){0,2})\s*(?:체험단|캠페인)(?:에|이|의)?\s*(?:최종\s*)?(?:선정|당첨)/u);
   if (before) {
     const stop = /^(?:축하|안녕|고객|회원|블로거|님|신청|하신|참여|이번|해당|저희|귀하|최종|[가-힣]+님)/;
     const words = before[1].split(" ").filter((w) => !stop.test(w) && !KNOWN_PLATFORMS.some((p) => p.re.test(w)));
     const name = words.join(" ").trim();
-    if (name.length >= 2) return name;
+    if (name.length >= 2 && !isGreeting(name)) return name;
   }
   return null;
 }
@@ -455,9 +502,10 @@ function contactFromLine(line: string): string | null {
 
 function findContact(text: string): string | null {
   const lines = text.split("\n");
-  const ranked = lines.filter((line) => /문의|전화|연락|예약|톡톡|카톡|카카오/.test(line));
-  for (const line of ranked) {
-    const contact = contactFromLine(line);
+  for (let i = 0; i < lines.length; i++) {
+    if (!/예약\s*(?:전화|번호|문의)|문의\s*(?:전화|번호)|연락할\s*번호|톡톡/.test(lines[i])) continue;
+    if (/고객센터|사업자|기재/.test(lines[i])) continue;
+    const contact = contactFromLine(lines[i]) || contactFromLine(lines[i + 1] ?? "") || contactFromLine(lines[i + 2] ?? "");
     if (contact) return contact;
   }
   return findPhone(text);
@@ -466,7 +514,12 @@ function findContact(text: string): string | null {
 function findPhone(text: string): string | null {
   const lines = text.split("\n");
   const ranked = lines
-    .map((line, index) => ({ line, index, score: /문의|전화|연락|예약|휴대폰|핸드폰/.test(line) ? 1 : 0 }))
+    .map((line, index) => ({
+      line,
+      index,
+      score: /고객센터|사업자|대표\s*:|기재/.test(line) ? -1 : /예약/.test(line) ? 2 : /문의|전화|연락|휴대폰|핸드폰/.test(line) ? 1 : 0,
+    }))
+    .filter((item) => item.score >= 0)
     .sort((a, b) => b.score - a.score || a.index - b.index);
   for (const item of ranked) {
     const phone = firstPhone(item.line);
@@ -567,9 +620,10 @@ function trimBlock(lines: string[]): string {
 function headingName(line: string): string | null {
   const stripped = line
     .trim()
-    .replace(/^[\s■□※★☆•·*▶►▷▸\-–—<【\[(]+/u, "")
-    .replace(/[>】\])\s]+$/u, "")
+    .replace(/^[\s■□※★☆•·*▶►▷▸\-–—<【\[(#]+/u, "")
+    .replace(/[>】\]]+\s*$/u, "")
     .trim();
+  if (/^(?:(?:캠페인|리뷰어)\s*)?미션(?:\s*[(（][^)）]{0,12}[)）])?\s*$/.test(stripped)) return "mission";
   if (/^(?:리뷰어\s*)?미션(?:\s|$|[:：])/.test(stripped)) return "mission";
   if (/^리뷰\s*작성\s*안내/.test(stripped)) return "review";
   if (/^필독/.test(stripped)) return "must";
@@ -583,21 +637,50 @@ function isFooter(line: string): boolean {
   return /이용약관|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책/i.test(line);
 }
 
+function squash(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
 function uniqueChunks(chunks: string[]): string {
   const kept: string[] = [];
-  const overlaps = (longer: string, shorter: string) => {
-    if (longer.includes(shorter)) return true;
-    const needle = shorter.slice(0, 80).trim();
-    return needle.length > 40 && longer.includes(needle);
+  const covers = (longer: string, shorter: string) => {
+    const host = squash(longer);
+    const guest = squash(shorter);
+    if (!host || !guest) return false;
+    if (host.includes(guest)) return true;
+    if (guest.length < 40) return false;
+    const slices = guest.match(/.{24}/g) ?? [];
+    if (slices.length < 2) return false;
+    return slices.filter((part) => host.includes(part)).length / slices.length >= 0.7;
   };
   for (const chunk of chunks.map((item) => item.trim()).filter(Boolean)) {
-    if (kept.some((item) => overlaps(item, chunk))) continue;
+    if (kept.some((item) => covers(item, chunk))) continue;
     for (let i = kept.length - 1; i >= 0; i--) {
-      if (overlaps(chunk, kept[i])) kept.splice(i, 1);
+      if (covers(chunk, kept[i])) kept.splice(i, 1);
     }
     kept.push(chunk);
   }
   return cutFooter(kept.join("\n\n")).slice(0, 8000);
+}
+
+function groupSteps(lines: string[]): { from: number; to: number }[] {
+  const groups: { from: number; to: number }[] = [];
+  let current: number[] = [];
+  const flush = () => {
+    if (current.length >= 2) groups.push({ from: current[0], to: current[current.length - 1] });
+    current = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/^(\d{1,2})[.)]\s+\S/);
+    if (!match) continue;
+    const n = Number(match[1]);
+    const prevIndex = current[current.length - 1];
+    const prevN = prevIndex == null ? 0 : Number(lines[prevIndex].match(/^(\d+)/)?.[1] ?? 0);
+    if (current.length && (n === 1 || n < prevN || i - prevIndex > 4)) flush();
+    current.push(i);
+  }
+  flush();
+  return groups;
 }
 
 /** 미션, 리뷰작성안내, 필독, 예약 조율, or numbered instructions, kept as written. */
@@ -650,22 +733,23 @@ function extractMission(rawLines: string[]): { text: string; indexes: number[] }
     chunks.push(trimBlock(block));
   }
 
-  const steps = trimmed.map((line, index) => (STEP_RE.test(line) ? index : -1)).filter((index) => index >= 0);
-  if (steps.length >= 2 && !steps.every((index) => indexes.has(index))) {
-    const from = steps[0];
-    let to = steps[steps.length - 1];
-    for (let i = to + 1; i < trimmed.length; i++) {
-      const line = trimmed[i];
-      if (!line) {
-        const next = trimmed.slice(i + 1).find(Boolean);
-        if (!next || /^https?:\/\//i.test(next) || isFooter(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
-      } else if (isFooter(line) || (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line))) {
-        break;
-      }
-      to = i;
+  for (const group of groupSteps(trimmed)) {
+    if (Array.from({ length: group.to - group.from + 1 }, (_, offset) => group.from + offset).every((index) => indexes.has(index))) {
+      continue;
     }
-    chunks.push(trimBlock(trimmed.slice(from, to + 1)));
-    for (let i = from; i <= to; i++) indexes.add(i);
+    let to = group.to;
+    for (let i = to + 1; i < trimmed.length && i <= group.to + 8; i++) {
+      const line = trimmed[i];
+      if (!line) continue;
+      if (headingName(line) || isFooter(line) || STEP_RE.test(line)) break;
+      if (/^[-•※★]/.test(line) || /^https?:\/\//i.test(line) || /당일\s*예약|절대\s*불가|카카오|인스타|지도/.test(line)) {
+        to = i;
+        continue;
+      }
+      break;
+    }
+    chunks.push(trimBlock(trimmed.slice(group.from, to + 1)));
+    for (let i = group.from; i <= to; i++) indexes.add(i);
   }
 
   const text = uniqueChunks(chunks);
@@ -689,6 +773,8 @@ function decodeEntities(text: string): string {
 export function tidyPageText(raw: string): string {
   let text = decodeEntities(raw).replace(/\r\n?/g, "\n");
   text = text.replace(/(이용약관|사업자\s*등록번호|사업자\s*등록|Copyright|모바일\s*버전|개인정보보호정책)/gi, "\n$1");
+  text = text.split(/추천\s*캠페인\s*둘러보기|함께\s*하면\s*좋아요|관련\s*리뷰|맞춤\s*캠페인|캠페인\s*선정자만\s*확인/)[0];
+  text = text.replace(/키워드\s*작성\s*방법[\s\S]*?(?=필수\s*키워드\s*[:：])/g, "");
   if (/<\/?[a-z!]/i.test(text)) {
     text = text
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -706,13 +792,23 @@ export function tidyPageText(raw: string): string {
     });
   for (const word of PAGE_MARKERS) {
     const pattern = word.replace(/\s+/g, "\\s*");
-    text = text.replace(new RegExp(`(${pattern})\\s*[:：]?`, "g"), "\n$1: ");
+    text = text.replace(
+      new RegExp(
+        `(?<![가-힣A-Za-z0-9])(${pattern})(?:\\s*[:：]|\\s*\\d{1,2}(?=\\s|$)|(?=\\s*(?:\\n|$))|(?=\\.)|\\s+(?!환불|를|는|와|과|이|을|에|의|도))`,
+        "g",
+      ),
+      (_full, label: string) => `\n${label}: `,
+    );
   }
+  text = text.replace(
+    /(리뷰\s*등록\s*기간|리뷰\s*마감\s*기한|리뷰\s*기간|방문\s*가능\s*시간|방문\s*시간|예약\s*번호|예약\s*전화|캠페인\s*명)(?=\s*\d)/g,
+    "$1: ",
+  );
   text = text
     .replace(/([^\d\n])(\d{1,2})\.(?=[^\s\d])/g, "$1\n$2. ")
     .replace(/([^\n])(\d{1,2})\.\s+(?=\S)/g, "$1\n$2. ")
     .replace(/[ \t]*([※★])\s*/g, "\n$1 ")
-    .replace(/[ \t]+-\s+/g, "\n- ");
+    .replace(/(?<![시\d])[ \t]+-\s+/g, "\n- ");
   return text
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
@@ -721,7 +817,7 @@ export function tidyPageText(raw: string): string {
 }
 
 function pageIsUseful(text: string): boolean {
-  return /제공\s*내역|리뷰어\s*미션|필수\s*키워드|방문\s*가능\s*시간|필독|리뷰\s*작성\s*안내/.test(text);
+  return /제공\s*내역|리뷰어\s*미션|캠페인\s*미션|필수\s*키워드|방문\s*(?:가능\s*)?시간|필독|리뷰\s*작성\s*안내|캠페인\s*명|예약\s*번호/.test(text);
 }
 
 function isPointer(value: string): boolean {
@@ -729,17 +825,73 @@ function isPointer(value: string): boolean {
   return compact.length <= 24 && /링크|참조|홈페이지/.test(compact);
 }
 
+function isWeakOffer(value: string): boolean {
+  const compact = value.trim();
+  return !compact || isPointer(compact) || /^\d{1,3}$/.test(compact);
+}
+
+function keywordScore(value: string): number {
+  const clipped = clipKeywordSource(value).trim();
+  if (!clipped || /넣어\s*주|작성법|예시|해시태그로/.test(clipped)) return 0;
+  const parts = clipped.split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => /넣어|작성|제목|본문|이상/.test(part))) return 0;
+  if (parts.every((part) => part.length <= 30)) return parts.length + 2;
+  return 0;
+}
+
 function clipKeywordSource(raw: string): string {
   return raw.split(/\s*위\s*키워드|\s*제목\s*에는|\s*본문\s*에는/)[0] ?? raw;
 }
 
 function joinMission(current: string | undefined, extra: string | undefined): string {
-  const left = (current ?? "").trim();
-  const right = (extra ?? "").trim();
-  if (!left) return right.slice(0, 8000);
-  if (!right || left.includes(right)) return left.slice(0, 8000);
-  if (right.includes(left)) return right.slice(0, 8000);
-  return `${left}\n\n${right}`.slice(0, 8000);
+  const base = (current ?? "").trim();
+  const incoming = (extra ?? "").trim();
+  if (!incoming) return base.slice(0, 8000);
+  if (!base) return incoming.slice(0, 8000);
+  const host = squash(base);
+  const fresh = incoming
+    .split("\n")
+    .filter((line) => {
+      const guest = squash(line);
+      return guest.length < 18 || !host.includes(guest);
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return uniqueChunks([base, fresh]);
+}
+
+function pageRank(url: string): number {
+  if (/bit\.ly|naver\.me|map\.|kko\.to|place\.map|pf\.kakao|instagram\.com/i.test(url)) return 0;
+  if (/\/campaign\/?\?|detail\.php|\/campaign\/\d/i.test(url)) return 3;
+  if (/\/user\/visit\//i.test(url)) return 2;
+  if (KNOWN_PLATFORMS.some((platform) => platform.domain?.test(url))) return 2;
+  return 1;
+}
+
+function reservationPhone(text: string, phone: string): boolean {
+  if (/^https?:\/\//i.test(phone)) return /예약|문의|톡톡/.test(text);
+  const digits = phone.replace(/\D/g, "");
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const window = lines.slice(Math.max(0, i - 2), i + 3).join(" ");
+    if (!/예약\s*(?:전화|번호|문의)|문의\s*(?:전화|번호)/.test(window)) continue;
+    if (/고객센터|사업자|기재/.test(window)) continue;
+    if (window.includes(phone) || (digits.length >= 9 && window.replace(/\D/g, "").includes(digits))) return true;
+  }
+  return false;
+}
+
+function composeTimeNote(text: string, labeled?: string): string | null {
+  if (labeled && /평일|주말|공휴일|휴무|에만/.test(labeled)) return labeled.replace(/\s+/g, " ").trim().slice(0, 300);
+  const source = `${labeled ?? ""}\n${text}`;
+  const parts: string[] = [];
+  if (/모든\s*요일/.test(source)) parts.push("모든 요일");
+  if (/사전\s*조율/.test(source)) parts.push("사전 조율");
+  if (/당일\s*예약/.test(source) && /불가/.test(source)) parts.push("당일예약 불가");
+  if (parts.length >= 2) return parts.join(", ").slice(0, 300);
+  if (labeled && /가능|불가|조율|휴무/.test(labeled)) return labeled.replace(/\s+/g, " ").trim().slice(0, 300);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -758,13 +910,16 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
   const blockedFromPlatformScan = new Set<number>();
   const missionBlock = extractMission(rawLines);
   const missionIndexes = new Set(missionBlock?.indexes ?? []);
+  const keptInsideMission = new Set<FieldKey>(["keywords", "phone", "address", "deadline", "visitPeriod", "visitTime", "visitDate"]);
+  let phoneFromReservation = false;
+  let bestKeyword = "";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     if (missionIndexes.has(i)) {
       const peek = matchLabel(line);
-      if (!peek || (peek.field !== "keywords" && peek.field !== "phone")) continue;
+      if (!peek || !keptInsideMission.has(peek.field)) continue;
     }
     const hit = matchLabel(line);
     if (!hit) continue;
@@ -773,9 +928,16 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     const extra: string[] = [];
     if (MULTILINE_FIELDS.has(hit.field) || value === "") {
       for (let j = i + 1; j < lines.length; j++) {
-        if (missionIndexes.has(j)) break;
+        if (missionIndexes.has(j) && hit.field !== "keywords" && hit.field !== "guide") break;
         const next = lines[j];
-        if (!next || matchLabel(next) || /^https?:\/\//i.test(next) || KEY_VALUE_RE.test(next)) break;
+        if (!next) {
+          if (value === "" && extra.length === 0) continue;
+          break;
+        }
+        if (matchLabel(next) || /^https?:\/\//i.test(next)) break;
+        const offerStarted = hit.field === "offer" && (value !== "" || extra.length > 0);
+        if (hit.field !== "offer" && KEY_VALUE_RE.test(next)) break;
+        if (offerStarted && (KEY_VALUE_RE.test(next) || /초과\s*비용|본인\s*부담|보상이\s*어렵|타쿠폰|유의사항/.test(next))) break;
         if (!MULTILINE_FIELDS.has(hit.field) && (value !== "" || extra.length)) break;
         extra.push(next);
         usedLines.add(j);
@@ -786,9 +948,25 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     if (extra.length) value = [value, ...extra].filter(Boolean).join("\n");
     if (hit.field === "keywords" || hit.field === "guide") blockedFromPlatformScan.add(i);
     if (!value) continue;
+    if (hit.field === "phone") {
+      const reservation = /예약/.test(line);
+      const prev = labeled.get("phone");
+      if (prev === undefined || (reservation && !phoneFromReservation)) {
+        labeled.set("phone", value);
+        phoneFromReservation = reservation;
+      }
+      continue;
+    }
+    if (hit.field === "keywords") {
+      if (keywordScore(value) > keywordScore(bestKeyword)) {
+        bestKeyword = value;
+        labeled.set("keywords", value);
+      }
+      continue;
+    }
     const prev = labeled.get(hit.field);
     if (prev === undefined) labeled.set(hit.field, value);
-    else if (hit.field === "guide" || hit.field === "keywords") labeled.set(hit.field, `${prev}\n${value}`);
+    else if (hit.field === "guide") labeled.set(hit.field, `${prev}\n${value}`);
   }
 
   const fields: Partial<CampaignInput> = {};
@@ -810,17 +988,17 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     new RegExp(`[\\[【]\\s*((?:${REGION_WORDS})[^\\]】\\n]*)[\\]】]`, "u"),
   )?.[1];
   const business = labeledBusiness ? stripUrls(labeledBusiness) : findBusinessInText(text);
-  if (business) set("business_name", cleanBusinessName(business, platformNames));
+  if (business) {
+    const named = formatShopName(cleanBusinessName(business, platformNames));
+    if (named && !isGreeting(named)) set("business_name", named.slice(0, 120));
+  }
 
   // Offer & amount
   const offer = labeled.get("offer");
   if (offer) set("offer", stripUrls(offer));
   const labeledAmount = labeled.get("amount");
   let amount: number | null = null;
-  if (labeledAmount) {
-    amount = pickAmount(labeledAmount);
-    if (amount === null && /^\d[\d,]*$/.test(labeledAmount.trim())) amount = Number(labeledAmount.replace(/,/g, ""));
-  }
+  if (labeledAmount) amount = pickAmount(labeledAmount);
   if (amount === null && offer) amount = pickAmount(offer);
   if (amount === null) {
     const offerish = lines.filter(
@@ -883,6 +1061,8 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
       } else {
         set("visit_end", singles.at(-1)?.iso);
       }
+    } else if (/모집|신청\s*기간|캠페인\s*종료|크리에이터\s*선정/.test(line)) {
+      // A campaign schedule is not a visit window.
     } else if (/당첨|선정|발표/.test(line) && singles[0]) {
       set("won_date", singles[0].iso);
     } else {
@@ -922,9 +1102,8 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     set("visit_time_start", timeRange.start);
     set("visit_time_end", timeRange.end);
   }
-  if (labeledTime && /평일|주말|공휴일|휴무|불가|에만/.test(labeledTime)) {
-    set("visit_time_note", labeledTime.replace(/\s+/g, " ").trim().slice(0, 300));
-  }
+  const timeNote = composeTimeNote(text, labeledTime);
+  if (timeNote) set("visit_time_note", timeNote);
 
   const labeledPhone = labeled.get("phone");
   set("phone", (labeledPhone && contactFromLine(labeledPhone)) || findContact(text));
@@ -950,33 +1129,42 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     : inferCategory([fields.business_name, fields.offer, text].filter(Boolean).join("\n"));
   set("category", category);
 
-  // Link: prefer the platform's own campaign page over maps or short links.
-  const platformUrl = urls.find((u) => KNOWN_PLATFORMS.some((p) => p.domain?.test(u)));
-  const nonMap = urls.find((u) => !/map\.naver|naver\.me|kko\.to|map\.kakao|place\.map/i.test(u));
-  set("campaign_url", labeled.get("link")?.match(/https?:\/\/\S+/)?.[0] ?? platformUrl ?? nonMap ?? urls[0]);
+  // Link: the campaign homepage outranks a visit card, a map, or a short link.
+  const labeledLink = labeled.get("link")?.match(/https?:\/\/\S+/)?.[0];
+  const bestUrl = [...urls].sort((a, b) => pageRank(b) - pageRank(a))[0];
+  const chosenUrl = labeledLink && bestUrl && pageRank(labeledLink) >= pageRank(bestUrl) ? labeledLink : (bestUrl ?? labeledLink);
+  set("campaign_url", chosenUrl);
 
   if (fields.visit_date) set("status", "방문 예정");
 
-  for (const page of options.pages ?? []) {
+  const pages = [...(options.pages ?? [])].sort((a, b) => pageRank(a.url) - pageRank(b.url));
+  for (const page of pages) {
+    if (pageRank(page.url) <= 0) continue;
     const facts = factsFromPage(page.text, today);
-    if (facts.offer && (!fields.offer || isPointer(String(fields.offer)))) {
+    const prefer = pageRank(page.url) >= 2;
+    if (facts.business_name && !isGreeting(facts.business_name) && (prefer || !fields.business_name || isGreeting(String(fields.business_name)))) {
+      fields.business_name = facts.business_name;
+    }
+    if (facts.offer && !isWeakOffer(facts.offer) && (prefer || !fields.offer || isWeakOffer(String(fields.offer ?? "")))) {
       fields.offer = facts.offer;
       if (facts.amount != null) fields.amount = facts.amount;
     }
-    if (!fields.keywords && facts.keywords) fields.keywords = facts.keywords;
-    if (facts.mission) fields.mission = joinMission(fields.mission, facts.mission);
-    if (!fields.phone && facts.phone) fields.phone = facts.phone;
-    if (!fields.visit_time_start && facts.visit_time_start && facts.visit_time_end) {
+    if (facts.keywords && (prefer || !fields.keywords)) fields.keywords = facts.keywords;
+    if (facts.phone && (prefer || !fields.phone)) fields.phone = facts.phone;
+    if (facts.visit_time_start && facts.visit_time_end && (prefer || !fields.visit_time_start)) {
       fields.visit_time_start = facts.visit_time_start;
       fields.visit_time_end = facts.visit_time_end;
     }
-    if (!fields.visit_time_note && facts.visit_time_note) fields.visit_time_note = facts.visit_time_note;
-    if (!fields.deadline && facts.deadline) fields.deadline = facts.deadline;
-    if (!fields.business_name && facts.business_name) fields.business_name = facts.business_name;
-    if (!fields.region && facts.region) fields.region = facts.region;
+    if (facts.deadline && (prefer || !fields.deadline)) fields.deadline = facts.deadline;
+    if (facts.region && /로|길|\d/.test(facts.region) && (prefer || !fields.region || !/로|길|\d/.test(String(fields.region)))) {
+      fields.region = facts.region;
+    }
+    if (facts.mission) fields.mission = joinMission(fields.mission, facts.mission);
     if (!fields.platform && facts.platform) fields.platform = facts.platform;
-    if (!fields.category && facts.category) fields.category = facts.category;
+    if (facts.category && (prefer || !fields.category)) fields.category = facts.category;
   }
+  const combinedNote = composeTimeNote([text, ...pages.map((page) => page.text)].join("\n"), labeledTime);
+  if (combinedNote) fields.visit_time_note = combinedNote;
 
   const filled = (Object.keys(fields) as (keyof CampaignInput)[]).filter((key) => {
     const value = fields[key];
@@ -990,21 +1178,27 @@ function factsFromPage(text: string, today: string): Partial<CampaignInput> {
   if (!pageIsUseful(tidy)) return {};
   const parsed = parseWinMessage(tidy, { today });
   const facts: Partial<CampaignInput> = {};
-  if (parsed.fields.offer && !isPointer(parsed.fields.offer)) {
+  if (parsed.fields.offer && !isWeakOffer(parsed.fields.offer)) {
     facts.offer = parsed.fields.offer;
     const amount = pickAmount(parsed.fields.offer);
     if (amount != null) facts.amount = amount;
   }
   if (parsed.fields.keywords) facts.keywords = parsed.fields.keywords;
   if (parsed.fields.mission) facts.mission = parsed.fields.mission;
-  if (parsed.fields.phone && !/ringble\.co\.kr|nid\.naver|nidlogin/i.test(parsed.fields.phone)) facts.phone = parsed.fields.phone;
+  if (
+    parsed.fields.phone &&
+    reservationPhone(tidy, parsed.fields.phone) &&
+    !/ringble\.co\.kr|nid\.naver|nidlogin/i.test(parsed.fields.phone)
+  ) {
+    facts.phone = parsed.fields.phone;
+  }
   if (parsed.fields.visit_time_start && parsed.fields.visit_time_end) {
     facts.visit_time_start = parsed.fields.visit_time_start;
     facts.visit_time_end = parsed.fields.visit_time_end;
   }
   if (parsed.fields.visit_time_note) facts.visit_time_note = parsed.fields.visit_time_note;
   if (parsed.fields.deadline) facts.deadline = parsed.fields.deadline;
-  if (parsed.fields.business_name) facts.business_name = parsed.fields.business_name;
+  if (parsed.fields.business_name && !isGreeting(parsed.fields.business_name)) facts.business_name = parsed.fields.business_name;
   if (parsed.fields.region) facts.region = parsed.fields.region;
   if (parsed.fields.platform) facts.platform = parsed.fields.platform;
   if (parsed.fields.category) facts.category = parsed.fields.category;

@@ -316,6 +316,75 @@ https://www.ringble.co.kr/detail.php?number=285524
   assert.equal(fields.mission?.includes("863-81-01942"), false);
 });
 
+test("서울오빠 trusts the campaign page and does not invent a price", () => {
+  const message = `[서울오빠]안녕하세요 서울오빠입니다.
+[Web발신]
+[서울오빠] 축하합니다!
+[부천] 플랫디 크리에이터로 선정되셨습니다.
+아래 캠페인 정보를 꼼꼼히 확인해주세요.
+
+▶서울오빠 방문카드 : https://seoulouba.co.kr/user/visit/?device=mobile&key=NDM0NDA1fGdrZHVzMzMzOQ==
+*사용방법 : https://bit.ly/38xxUJx
+
+▶방문안내
+1. 주소 : 경기 부천시 원미구 신흥로 223
+2. 방문가능시간 : 오전 11시 - 오후 6시  모든 요일 가능 (사전 조율 필수)
+3. 예약전화 : 010-2711-0913
+4. 예약안내 : 1. 최소 2~3일 전 예약연락 후 방문시간 반드시 조율해주세요. (당일예약 및 당일체험불가)
+2. 제한인원 및 예약방문시간을 필히 준수해주세요. (노쇼/지연불가)
+3. 크리에이터 방문자카드로 반드시 인증 후 체험해주세요.
+4.  사전 100% 예약제입니다. 선정 후 예약연락시 원장님께 시술 원하시는 부위를 사진 찍어 (보정 없이) 보내주세요.
+※ 당일 예약 절대불가 / 예약 목적 외 타인에게 전달 불가
+
+▶캠페인 정보
+1. 홈페이지 : https://seoulouba.co.kr/campaign/?c=434405
+2. 리뷰기간 : 2026-11-12 ~ 2026-11-25
+* 방문일 기준 3일 이내 리뷰를 등록해주세요.`;
+  const visit = `캠페인명\n\n[434405] [부천] 플랫디\n\n예약번호\n\n010-2711-0913\n\n리뷰기간\n\n26-11-12 ~ 26-11-25\n\n방문시간\n\n오전 11시 - 오후 6시 모든 요일 가능 (사전 조율 필수) / 주말방문가능\n\n제공내역1\n\n두피문신 3회차: 가르마 or 정수리 중 택 1\n\n연락처\n\n01020877061\n\n이름\n\n김하연`;
+  const campaign = `## [부천] 플랫디\n\n리뷰등록 기간26-11-12 ~ 26-11-25\n크리에이터 모집26-11-04 ~ 26-11-10\n\n방문가능시간 : 오전 11시 - 오후 6시 모든 요일 가능 (사전 조율 필수)\n\n1. 최소 2~3일 전 예약연락 후 방문시간 반드시 조율해주세요. (당일예약 및 당일체험불가)\n2. 제한인원 및 예약방문시간을 필히 준수해주세요. (노쇼/지연불가)\n3. 크리에이터 방문자카드로 반드시 인증 후 체험해주세요.\n4. 사전 100% 예약제입니다. 선정 후 예약연락시 원장님께 시술 원하시는 부위를 사진 찍어 (보정 없이) 보내주세요.\n\n경기 부천시 원미구 신흥로 223\n\n제공내역\n\n두피문신 3회차: 가르마 or 정수리 중 택 1\n\n필수 키워드 : 부천두피문신, 신중동두피문신\n\n캠페인 미션(필수)\n\n20장 이상\n\n1. 제목을 필수키워드와 업체명+시술명 구성으로 등록해주세요.\n5. 업체 정보를 기재해주세요.\n- 지도 : https://naver.me/5r33nq6J\n\n캠페인 선정자만 확인이 가능합니다.\n최대 200,000원 상당의 제공내역`;
+  const today = { today: "2026-11-16", platforms: DEFAULT_PLATFORMS };
+  const messageOnly = parseWinMessage(message, today).fields;
+  assert.equal(messageOnly.platform, "서울오빠");
+  assert.equal(messageOnly.business_name, "플랫디 (부천)");
+  assert.equal(messageOnly.phone, "010-2711-0913");
+  assert.equal(messageOnly.visit_time_start, "11:00");
+  assert.equal(messageOnly.visit_time_end, "18:00");
+  assert.equal(messageOnly.visit_time_note, "모든 요일, 사전 조율, 당일예약 불가");
+  assert.equal(messageOnly.deadline, "2026-11-25");
+  assert.equal(messageOnly.visit_start, undefined);
+  assert.equal(messageOnly.visit_end, undefined);
+  assert.equal(messageOnly.amount, undefined);
+  assert.equal(messageOnly.campaign_url, "https://seoulouba.co.kr/campaign/?c=434405");
+  assert.match(messageOnly.region ?? "", /신흥로 223/);
+  assert.equal((messageOnly.mission ?? "").match(/최소 2~3일 전 예약연락/g)?.length ?? 0, 1);
+
+  const { fields } = parseWinMessage(message, {
+    ...today,
+    pages: [
+      { url: "https://seoulouba.co.kr/user/visit/?device=mobile&key=NDM0NDA1fGdrZHVzMzMzOQ==", text: visit },
+      { url: "https://seoulouba.co.kr/campaign/?c=434405", text: campaign },
+    ],
+  });
+  assert.equal(fields.business_name, "플랫디 (부천)");
+  assert.equal(fields.offer, "두피문신 3회차: 가르마 or 정수리 중 택 1");
+  assert.equal(fields.amount, undefined);
+  assert.equal(fields.phone, "010-2711-0913");
+  assert.notEqual(fields.phone, "010-2087-7061");
+  assert.equal(fields.deadline, "2026-11-25");
+  assert.equal(fields.visit_start, undefined);
+  assert.equal(fields.visit_end, undefined);
+  assert.equal(fields.visit_time_start, "11:00");
+  assert.equal(fields.visit_time_end, "18:00");
+  assert.equal(fields.visit_time_note, "모든 요일, 사전 조율, 당일예약 불가");
+  assert.equal(fields.keywords, "부천두피문신, 신중동두피문신");
+  assert.equal(fields.campaign_url, "https://seoulouba.co.kr/campaign/?c=434405");
+  assert.equal((fields.mission ?? "").match(/최소 2~3일 전 예약연락/g)?.length ?? 0, 1);
+  assert.match(fields.mission ?? "", /20장 이상/);
+  assert.match(fields.mission ?? "", /https:\/\/naver\.me\/5r33nq6J/);
+  assert.equal(fields.mission?.includes("200,000"), false);
+  assert.equal(fields.mission?.includes("김하연"), false);
+});
+
 test("empty or unrelated text yields nothing harmful", () => {
   assert.deepEqual(parseWinMessage("", opts).fields, {});
   const { fields } = parseWinMessage("오늘 날씨가 좋네요", opts);

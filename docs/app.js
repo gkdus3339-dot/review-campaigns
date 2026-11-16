@@ -415,7 +415,7 @@ https://www.revu.net/campaign/123456`;
       label: "제공 금액",
       auto: auto("amount"),
       autoKey: "amount",
-      body: `<div class="input-suffix"><input id="f-amount" data-field="amount" inputmode="numeric" value="${esc(viewState.amountText)}" placeholder="0" aria-label="제공 금액"><span>원</span></div>`,
+      body: `<div class="input-suffix"><input id="f-amount" data-field="amount" inputmode="numeric" value="${esc(viewState.amountText)}" placeholder="" aria-label="제공 금액"><span>원</span></div>`,
     })}${field({
       label: "주소/지역",
       auto: auto("region"),

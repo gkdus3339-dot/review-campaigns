@@ -13,14 +13,23 @@ export async function loadLinkedPages(text: string): Promise<{ pages: LinkedPage
   const failed: string[] = [];
   await Promise.all(
     urls.map(async (url) => {
-      try {
-        pages.push({ url, text: await fetchReadable(url) });
-      } catch {
-        failed.push(url);
-      }
+        try {
+          const text = await fetchReadable(url);
+          if (isLoginWall(text)) throw new Error("private");
+          pages.push({ url, text });
+        } catch {
+          failed.push(url);
+        }
     }),
   );
   return { pages, failed };
+}
+
+function isLoginWall(text: string): boolean {
+  const compact = text.replace(/\s+/g, " ");
+  if (compact.length > 8000) return false;
+  if (/제공\s*내역|캠페인\s*미션|예약\s*번호|방문\s*시간|리뷰\s*기간/.test(compact)) return false;
+  return /비밀번호/.test(compact) && /로그인/.test(compact);
 }
 
 async function fetchReadable(url: string): Promise<string> {

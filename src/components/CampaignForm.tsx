@@ -263,7 +263,7 @@ export function CampaignForm({
                   return n;
                 });
               }}
-              placeholder="0"
+              placeholder=""
               aria-label="제공 금액"
             />
             <span>원</span>
