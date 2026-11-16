@@ -6,7 +6,8 @@ import { useState } from "react";
 import { useData } from "@/components/DataProvider";
 import { ChevronLeft, LinkIcon, MapPinIcon, TrashIcon } from "@/components/Icons";
 import { DdayBadge, Empty, ErrorBox, Loading, PageHeader, ReviewToggle, StatusBadge } from "@/components/ui";
-import { formatRange, formatShort } from "@/lib/dates";
+import { MissionText } from "@/components/MissionText";
+import { formatRange, formatShort, formatTimeRange } from "@/lib/dates";
 import { formatWon } from "@/lib/money";
 import { FLOW_STATUSES, isReviewDone, isSafeUrl, needsVisit, Status } from "@/lib/types";
 
@@ -103,9 +104,22 @@ export default function CampaignDetailPage() {
       </section>
 
       <section className="card info">
+        <InfoRow label="체험단">{c.platform || <span className="muted">미정</span>}</InfoRow>
+        <InfoRow label="연락할 번호">
+          {c.phone ? (
+            <a className="icon-link" href={`tel:${c.phone.replace(/\D/g, "")}`}>
+              {c.phone}
+            </a>
+          ) : (
+            <span className="muted">미정</span>
+          )}
+        </InfoRow>
         <InfoRow label="방문 가능 기간">
           {formatRange(c.visit_start, c.visit_end) || <span className="muted">미정</span>}
           {visitOpen && !c.visit_date && c.visit_end && <DdayBadge date={c.visit_end} today={today} />}
+        </InfoRow>
+        <InfoRow label="방문 가능 시간">
+          {formatTimeRange(c.visit_time_start, c.visit_time_end) || <span className="muted">미정</span>}
         </InfoRow>
         <InfoRow label="방문 예약일">
           {c.visit_date ? formatShort(c.visit_date) : <span className="muted">미정</span>}
@@ -160,6 +174,11 @@ export default function CampaignDetailPage() {
           </div>
         </section>
       )}
+
+      <section className="card">
+        <h3 className="card-title">미션</h3>
+        {c.mission ? <MissionText text={c.mission} /> : <p className="muted">미정</p>}
+      </section>
 
       {c.guide && (
         <section className="card">

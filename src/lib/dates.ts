@@ -45,6 +45,12 @@ export function formatRange(start: string | null, end: string | null): string {
   return start ? `${formatShort(start)} ~` : `~ ${formatShort(end)}`;
 }
 
+/** "11:00" + "15:00" → "11:00–15:00". */
+export function formatTimeRange(start: string | null, end: string | null): string {
+  if (start && end) return `${start}–${end}`;
+  return start || end || "";
+}
+
 export function monthKey(iso: string): string {
   return iso.slice(0, 7);
 }

@@ -14,13 +14,17 @@ export interface CampaignInput {
   offer: string;
   amount: number | null;
   region: string;
+  phone: string;
   visit_start: string | null;
   visit_end: string | null;
+  visit_time_start: string | null;
+  visit_time_end: string | null;
   visit_date: string | null;
   deadline: string | null;
   won_date: string | null;
   keywords: string;
   guide: string;
+  mission: string;
   campaign_url: string;
   review_url: string;
   status: Status;
@@ -40,13 +44,17 @@ export function emptyCampaign(today: string): CampaignInput {
     offer: "",
     amount: null,
     region: "",
+    phone: "",
     visit_start: null,
     visit_end: null,
+    visit_time_start: null,
+    visit_time_end: null,
     visit_date: null,
     deadline: null,
     won_date: today,
     keywords: "",
     guide: "",
+    mission: "",
     campaign_url: "",
     review_url: "",
     status: "당첨",

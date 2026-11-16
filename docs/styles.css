@@ -130,6 +130,27 @@ p {
   white-space: pre-wrap;
   color: var(--sub);
 }
+.mission {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  color: var(--text);
+}
+.mission a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mission.preview {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 14px;
+}
+input[type="time"] {
+  min-height: 46px;
+}
 .wrap-text {
   overflow-wrap: anywhere;
 }

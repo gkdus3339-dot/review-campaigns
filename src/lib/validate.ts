@@ -8,8 +8,10 @@ const LIMITS: Record<string, number> = {
   category: 40,
   offer: 1000,
   region: 300,
+  phone: 40,
   keywords: 1000,
   guide: 5000,
+  mission: 8000,
   campaign_url: 2000,
   review_url: 2000,
 };
@@ -27,6 +29,14 @@ function text(value: unknown, field: string): string {
 function date(value: unknown, field: string): string | null {
   if (value == null || value === "") return null;
   if (!isValidISO(value)) throw new ValidationError(`${field}: 날짜 형식이 올바르지 않습니다`);
+  return value;
+}
+
+function clock(value: unknown, field: string): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    throw new ValidationError(`${field}: 시간 형식이 올바르지 않습니다`);
+  }
   return value;
 }
 
@@ -56,13 +66,17 @@ const PARSERS: { [K in keyof CampaignInput]: (v: unknown) => CampaignInput[K] } 
   offer: (v) => text(v, "offer"),
   amount,
   region: (v) => text(v, "region"),
+  phone: (v) => text(v, "phone"),
   visit_start: (v) => date(v, "visit_start"),
   visit_end: (v) => date(v, "visit_end"),
+  visit_time_start: (v) => clock(v, "visit_time_start"),
+  visit_time_end: (v) => clock(v, "visit_time_end"),
   visit_date: (v) => date(v, "visit_date"),
   deadline: (v) => date(v, "deadline"),
   won_date: (v) => date(v, "won_date"),
   keywords: (v) => text(v, "keywords"),
   guide: (v) => text(v, "guide"),
+  mission: (v) => text(v, "mission"),
   campaign_url: (v) => url(v, "campaign_url"),
   review_url: (v) => url(v, "review_url"),
   status,

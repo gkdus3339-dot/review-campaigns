@@ -6,22 +6,27 @@ import { parseWinMessage } from "@/lib/parser";
 import { CampaignInput, CATEGORIES, STATUSES } from "@/lib/types";
 import { useData } from "./DataProvider";
 import { ChevronDown, ClipboardIcon, SparkleIcon } from "./Icons";
+import { MissionText } from "./MissionText";
 
 type Key = keyof CampaignInput;
 
 const FIELD_LABEL: Partial<Record<Key, string>> = {
-  platform: "플랫폼",
+  platform: "체험단",
   business_name: "업체명",
   category: "카테고리",
   offer: "제공 내역",
   amount: "제공 금액",
   region: "주소/지역",
+  phone: "연락할 번호",
   visit_start: "방문 시작일",
   visit_end: "방문 종료일",
+  visit_time_start: "방문 시작 시간",
+  visit_time_end: "방문 종료 시간",
   visit_date: "방문 예약일",
   deadline: "리뷰 마감일",
   won_date: "당첨일",
   keywords: "필수 키워드",
+  mission: "미션",
   guide: "가이드 메모",
   campaign_url: "캠페인 링크",
   status: "상태",
@@ -176,7 +181,7 @@ export function CampaignForm({
       )}
 
       <section className="card fields">
-        <Field label="플랫폼" group auto={isAuto("platform")} extra={<Link href="/settings" className="link small">편집</Link>}>
+        <Field label="체험단" group auto={isAuto("platform")} hint="카테고리와 별개예요" extra={<Link href="/settings" className="link small">편집</Link>}>
           <div className="chips wrap">
             {platformOptions.map((p) => (
               <button
@@ -255,6 +260,17 @@ export function CampaignForm({
             maxLength={300}
           />
         </Field>
+
+        <Field label="연락할 번호" auto={isAuto("phone")}>
+          <input
+            type="tel"
+            inputMode="tel"
+            value={form.phone}
+            onChange={(e) => set("phone", e.target.value)}
+            placeholder="예) 010-1234-5678"
+            maxLength={40}
+          />
+        </Field>
       </section>
 
       <section className="card fields">
@@ -272,6 +288,23 @@ export function CampaignForm({
               value={form.visit_end ?? ""}
               onChange={(e) => set("visit_end", e.target.value || null)}
               aria-label="방문 종료일"
+            />
+          </div>
+        </Field>
+        <Field label="방문 가능 시간" auto={isAuto("visit_time_start") || isAuto("visit_time_end")} hint="예) 11:00–15:00">
+          <div className="date-range">
+            <input
+              type="time"
+              value={form.visit_time_start ?? ""}
+              onChange={(e) => set("visit_time_start", e.target.value || null)}
+              aria-label="방문 시작 시간"
+            />
+            <span>~</span>
+            <input
+              type="time"
+              value={form.visit_time_end ?? ""}
+              onChange={(e) => set("visit_time_end", e.target.value || null)}
+              aria-label="방문 종료 시간"
             />
           </div>
         </Field>
@@ -310,6 +343,20 @@ export function CampaignForm({
             placeholder="예) 연남동 맛집, 홍대 데이트"
             maxLength={1000}
           />
+        </Field>
+        <Field label="미션" auto={isAuto("mission")} hint="번호와 링크를 그대로 붙여 넣어요">
+          <textarea
+            rows={8}
+            value={form.mission}
+            onChange={(e) => set("mission", e.target.value)}
+            placeholder="1. 제목에 키워드를 넣어 주세요"
+            maxLength={8000}
+          />
+          {form.mission.trim() ? (
+            <div className="mission preview">
+              <MissionText text={form.mission} />
+            </div>
+          ) : null}
         </Field>
         <Field label="가이드 메모" auto={isAuto("guide")}>
           <textarea

@@ -26,13 +26,16 @@ type FieldKey =
   | "category"
   | "link"
   | "won"
-  | "platform";
+  | "platform"
+  | "phone"
+  | "visitTime";
 
 const DATE_FIELDS = new Set<FieldKey>(["visitPeriod", "visitDate", "deadline", "won"]);
 const MULTILINE_FIELDS = new Set<FieldKey>(["offer", "keywords", "guide"]);
 
 const LABELS: [FieldKey, string][] = [
   ["platform", "플랫폼"],
+  ["phone", "연락할\\s*번호|연락\\s*처|전화\\s*번호|전화번호|휴대폰\\s*번호|휴대폰|핸드폰|휴대\\s*전화|문의\\s*(?:전화|번호)"],
   ["business", "업체\\s*명|상호\\s*명?|매장\\s*명|가게\\s*명|캠페인\\s*명|브랜드\\s*명?|체험단\\s*명|업체|매장"],
   ["link", "캠페인\\s*(?:링크|주소|URL|상세)|상세\\s*(?:페이지|링크)|링크|URL"],
   ["amount", "제공\\s*금액|제공\\s*가격?|상당\\s*금액|금액|가격|정가"],
@@ -41,6 +44,10 @@ const LABELS: [FieldKey, string][] = [
     "제공\\s*(?:내역|내용|서비스|상품|품목|메뉴|사항)|제공품|제공|혜택|체험\\s*(?:내용|상품|메뉴)|지원\\s*내역|리워드|제품",
   ],
   ["address", "(?:매장|방문|업체|업장)\\s*(?:주소|위치)|주소|위치|지역|장소"],
+  [
+    "visitTime",
+    "방문\\s*가능\\s*시간|방문\\s*시간|운영\\s*시간|영업\\s*시간|이용\\s*가능\\s*시간|이용\\s*시간|예약\\s*가능\\s*시간",
+  ],
   [
     "visitPeriod",
     "방문\\s*가능\\s*(?:기간|일정)|방문\\s*(?:기간|일정|기한)|체험\\s*(?:가능\\s*)?(?:기간|일정)|이용\\s*(?:가능\\s*)?기간|사용\\s*기간",
@@ -53,7 +60,7 @@ const LABELS: [FieldKey, string][] = [
   ["keywords", "필수\\s*(?:키워드|태그|해시태그)|키워드|해시\\s*태그|태그"],
   [
     "guide",
-    "(?:작성|리뷰|포스팅)\\s*가이드(?:라인)?|가이드(?:라인)?|미션|(?:유의|주의|필수|요청|안내|참고|전달)\\s*사항|패널티|페널티",
+    "(?:작성|리뷰|포스팅)\\s*가이드(?:라인)?|가이드(?:라인)?|(?:유의|주의|필수|요청|안내|참고|전달)\\s*사항|패널티|페널티",
   ],
   ["category", "카테고리|분야|유형"],
   ["won", "당첨\\s*일|선정\\s*일|발표\\s*일"],
@@ -410,6 +417,168 @@ function findAddress(lines: string[]): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Phone numbers and visit hours
+
+const PHONE_RE = /(?<!\d)(?:01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}|0\d{1,2}[-\s.]\d{3,4}[-\s.]\d{4})(?!\d)/g;
+
+function formatPhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 9 || digits.length > 11) return null;
+  if (digits.startsWith("02") && digits.length === 9) return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+  if (digits.startsWith("02") && digits.length === 10) return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return null;
+}
+
+function firstPhone(text: string): string | null {
+  PHONE_RE.lastIndex = 0;
+  const match = PHONE_RE.exec(text);
+  return match ? formatPhone(match[0]) : null;
+}
+
+function findPhone(text: string): string | null {
+  const lines = text.split("\n");
+  const ranked = lines
+    .map((line, index) => ({ line, index, score: /문의|전화|연락|예약|휴대폰|핸드폰/.test(line) ? 1 : 0 }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  for (const item of ranked) {
+    const phone = firstPhone(item.line);
+    if (phone) return phone;
+  }
+  return null;
+}
+
+interface ClockToken {
+  hhmm: string;
+  hour: number;
+  minute: number;
+  ampm: "am" | "pm" | null;
+  style: "colon" | "hour";
+  start: number;
+  end: number;
+}
+
+function clockHHMM(hour: number, minute: number, ampm: "am" | "pm" | null): string | null {
+  if (minute < 0 || minute > 59 || hour < 0 || hour > 23) return null;
+  if (ampm && (hour < 1 || hour > 12)) return null;
+  let h = hour;
+  if (ampm === "pm" && h < 12) h += 12;
+  if (ampm === "am" && h === 12) h = 0;
+  return `${pad(h)}:${pad(minute)}`;
+}
+
+function findClockTimes(text: string): ClockToken[] {
+  const re = /(?:(오전|오후)\s*)?(?<!\d)(\d{1,2})\s*(?::\s*(\d{2})(?!\d)|시(?:\s*(\d{1,2})\s*분)?)/g;
+  const tokens: ClockToken[] = [];
+  for (const match of text.matchAll(re)) {
+    const ampm = match[1] === "오전" ? "am" : match[1] === "오후" ? "pm" : null;
+    const hour = Number(match[2]);
+    const minute = Number(match[3] ?? match[4] ?? 0);
+    const hhmm = clockHHMM(hour, minute, ampm);
+    if (!hhmm) continue;
+    const start = match.index ?? 0;
+    tokens.push({
+      hhmm,
+      hour,
+      minute,
+      ampm,
+      style: match[3] != null ? "colon" : "hour",
+      start,
+      end: start + match[0].length,
+    });
+  }
+  return tokens;
+}
+
+function rangeOnLine(line: string): { start: string; end: string } | null {
+  const tokens = findClockTimes(line);
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const a = tokens[i];
+    const b = tokens[i + 1];
+    const gap = line.slice(a.end, b.start);
+    if (!/^\s*(?:[~∼〜\-–—]|부터)\s*$/.test(gap)) continue;
+    let endHour = b.hour;
+    let endAmpm = b.ampm;
+    const startHour = Number(a.hhmm.slice(0, 2));
+    if (!a.ampm && !b.ampm && b.style === "hour" && b.minute === 0 && b.hour < 12 && b.hour < startHour) {
+      endHour = b.hour + 12;
+      endAmpm = null;
+    }
+    const end = clockHHMM(endHour, b.minute, endAmpm);
+    if (!end) continue;
+    return { start: a.hhmm, end };
+  }
+  return null;
+}
+
+function findTimeRange(text: string): { start: string; end: string } | null {
+  const lines = text.split("\n");
+  const ranked = lines
+    .map((line, index) => ({
+      line,
+      index,
+      score: /방문\s*가능\s*시간|방문\s*시간|운영\s*시간|영업\s*시간|이용\s*시간/.test(line) ? 2 : /시간|방문|운영|영업/.test(line) ? 1 : 0,
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  for (const item of ranked) {
+    const found = rangeOnLine(item.line);
+    if (found) return found;
+  }
+  return null;
+}
+
+const STEP_RE = /^\d{1,2}[.)]\s+\S/;
+
+function trimBlock(lines: string[]): string {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && !lines[start]) start++;
+  while (end > start && !lines[end - 1]) end--;
+  return lines.slice(start, end).join("\n").slice(0, 8000);
+}
+
+/** The 미션 heading, or a block of numbered instructions, kept as written. */
+function extractMission(rawLines: string[]): { text: string; indexes: number[] } | null {
+  const trimmed = rawLines.map((line) => line.trim());
+  const head = trimmed.findIndex((line) => /^미션\b/.test(line.replace(/^[\s■□※•·*▶►▷▸\-–—]+/u, "")));
+  if (head >= 0) {
+    const indexes = [head];
+    const inline = trimmed[head].replace(/^[\s■□※•·*▶►▷▸\-–—]+/u, "").replace(/^미션\s*[:：]?\s*/, "");
+    const body: string[] = [];
+    if (inline) body.push(inline);
+    for (let i = head + 1; i < trimmed.length; i++) {
+      const line = trimmed[i];
+      if (!line) {
+        const next = trimmed.slice(i + 1).find(Boolean);
+        if (!next || /^https?:\/\//i.test(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
+      } else if (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line)) {
+        break;
+      }
+      body.push(trimmed[i]);
+      indexes.push(i);
+    }
+    const text = trimBlock(body);
+    if (text) return { text, indexes };
+  }
+  const steps = trimmed.map((line, index) => (STEP_RE.test(line) ? index : -1)).filter((index) => index >= 0);
+  if (steps.length < 2) return null;
+  const from = steps[0];
+  let to = steps[steps.length - 1];
+  for (let i = to + 1; i < trimmed.length; i++) {
+    const line = trimmed[i];
+    if (!line) {
+      const next = trimmed.slice(i + 1).find(Boolean);
+      if (!next || /^https?:\/\//i.test(next) || (matchLabel(cleanLine(next)) && !STEP_RE.test(next))) break;
+    } else if (matchLabel(cleanLine(line)) && !STEP_RE.test(line) && !/^https?:\/\//i.test(line)) {
+      break;
+    }
+    to = i;
+  }
+  return { text: trimBlock(trimmed.slice(from, to + 1)), indexes: trimmed.slice(from, to + 1).map((_, offset) => from + offset) };
+}
+
+// ---------------------------------------------------------------------------
 
 export function parseWinMessage(input: string, options: ParseOptions): ParseResult {
   const { today } = options;
@@ -423,8 +592,11 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
   const labeled = new Map<FieldKey, string>();
   const usedLines = new Set<number>();
   const blockedFromPlatformScan = new Set<number>();
+  const missionBlock = extractMission(rawLines);
+  const missionIndexes = new Set(missionBlock?.indexes ?? []);
 
   for (let i = 0; i < lines.length; i++) {
+    if (missionIndexes.has(i)) continue;
     const line = lines[i];
     if (!line) continue;
     const hit = matchLabel(line);
@@ -434,6 +606,7 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     const extra: string[] = [];
     if (MULTILINE_FIELDS.has(hit.field) || value === "") {
       for (let j = i + 1; j < lines.length; j++) {
+        if (missionIndexes.has(j)) break;
         const next = lines[j];
         if (!next || matchLabel(next) || /^https?:\/\//i.test(next) || KEY_VALUE_RE.test(next)) break;
         if (!MULTILINE_FIELDS.has(hit.field) && (value !== "" || extra.length)) break;
@@ -570,6 +743,21 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
     const tagLine = lines.find((l) => (l.match(/#[^\s#,]+/g) ?? []).length >= 2);
     if (tagLine) set("keywords", normalizeKeywords(tagLine));
   }
+
+  if (missionBlock?.text) {
+    set("mission", missionBlock.text);
+    for (const index of missionBlock.indexes) usedLines.add(index);
+  }
+
+  const labeledTime = labeled.get("visitTime");
+  const timeRange = (labeledTime && findTimeRange(labeledTime)) || findTimeRange(text);
+  if (timeRange) {
+    set("visit_time_start", timeRange.start);
+    set("visit_time_end", timeRange.end);
+  }
+
+  const labeledPhone = labeled.get("phone");
+  set("phone", (labeledPhone && firstPhone(labeledPhone)) || findPhone(text));
 
   // Guide: labeled guide plus notable unlabeled notes
   const guideParts: string[] = [];

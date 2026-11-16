@@ -13,7 +13,8 @@
   }
 
   const FIELD_LABEL = {
-    platform: "플랫폼",
+    platform: "체험단",
+    phone: "연락할 번호",
     business_name: "업체명",
     category: "카테고리",
     offer: "제공 내역",
@@ -21,10 +22,13 @@
     region: "주소/지역",
     visit_start: "방문 시작일",
     visit_end: "방문 종료일",
+    visit_time_start: "방문 시작 시간",
+    visit_time_end: "방문 종료 시간",
     visit_date: "방문 예약일",
     deadline: "리뷰 마감일",
     won_date: "당첨일",
     keywords: "필수 키워드",
+    mission: "미션",
     guide: "가이드 메모",
     campaign_url: "캠페인 링크",
     status: "상태",
@@ -74,6 +78,21 @@ https://www.revu.net/campaign/123456`;
       '"': "&quot;",
       "'": "&#39;",
     }[ch]));
+  }
+
+  function linkify(text) {
+    return String(text).split(/(https?:\/\/[^\s<>"']+)/gi).map((part) => {
+      if (!/^https?:\/\//i.test(part)) return esc(part);
+      const href = part.replace(/[),.;]+$/, "");
+      const trail = part.slice(href.length);
+      if (!RN.isSafeUrl(href)) return esc(part);
+      return `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>${esc(trail)}`;
+    }).join("");
+  }
+
+  function telHref(phone) {
+    const digits = String(phone).replace(/\D/g, "");
+    return digits ? `tel:${digits}` : "";
   }
 
   function icon(size, body, sw, cls) {
@@ -366,10 +385,11 @@ https://www.revu.net/campaign/123456`;
     const paste = `<section class="card paste${viewState.pasteOpen ? " open" : ""}"><button type="button" class="paste-head" data-action="toggle-paste" aria-expanded="${viewState.pasteOpen ? "true" : "false"}"><span class="paste-icon">${icons.clipboard(20)}</span><span class="paste-title"><strong>당첨 메시지 붙여넣기</strong><span class="muted small">문자·카톡·메일 내용을 붙여넣으면 자동으로 채워져요</span></span>${icons.down(18)}</button>${viewState.pasteOpen ? `<div class="paste-body"><textarea id="paste-box" rows="7" aria-label="당첨 메시지" placeholder="예) [레뷰] 캠페인 선정 안내&#10;■ 제공내역 : 2인 코스 (6만원 상당)&#10;■ 방문기간 : 11.15 ~ 11.30&#10;■ 리뷰 마감 : 12.07">${esc(viewState.message)}</textarea><div class="row gap wrap"><button type="button" class="btn primary" id="parse-btn" data-action="parse" ${viewState.message.trim() ? "" : "disabled"}>${icons.spark(18)} 자동 채우기</button><button type="button" class="btn" data-action="clipboard">클립보드에서 붙여넣기</button><button type="button" class="btn ghost small" data-action="sample">예시로 해보기</button></div></div>` : ""}</section>`;
     const note = viewState.parseNote ? `<p class="parse-note" role="status">${icons.spark(16)} ${esc(viewState.parseNote)}</p>` : "";
     const basics = `<section class="card fields">${field({
-      label: "플랫폼",
+      label: "체험단",
       group: true,
       auto: auto("platform"),
       autoKey: "platform",
+      hint: "카테고리와 별개예요",
       extra: '<a href="#/settings" class="link small">편집</a>',
       body: choiceChips(platforms, form.platform, "set-platform"),
     })}${field({
@@ -399,12 +419,23 @@ https://www.revu.net/campaign/123456`;
       auto: auto("region"),
       autoKey: "region",
       body: `<input id="f-region" data-field="region" value="${esc(form.region)}" placeholder="예) 서울 마포구 동교로 123" maxlength="300">`,
+    })}${field({
+      label: "연락할 번호",
+      auto: auto("phone"),
+      autoKey: "phone",
+      body: `<input id="f-phone" data-field="phone" type="tel" inputmode="tel" value="${esc(form.phone)}" placeholder="예) 010-1234-5678" maxlength="40">`,
     })}</section>`;
     const dates = `<section class="card fields">${field({
       label: "방문 가능 기간",
       auto: auto("visit_start") || auto("visit_end"),
       autoKey: "visit_start visit_end",
       body: `<div class="date-range"><input id="f-visit_start" data-field="visit_start" type="date" value="${esc(form.visit_start ?? "")}" aria-label="방문 시작일"><span>~</span><input id="f-visit_end" data-field="visit_end" type="date" value="${esc(form.visit_end ?? "")}" aria-label="방문 종료일"></div>`,
+    })}${field({
+      label: "방문 가능 시간",
+      auto: auto("visit_time_start") || auto("visit_time_end"),
+      autoKey: "visit_time_start visit_time_end",
+      hint: "예) 11:00–15:00",
+      body: `<div class="date-range"><input id="f-visit_time_start" data-field="visit_time_start" type="time" value="${esc(form.visit_time_start ?? "")}" aria-label="방문 시작 시간"><span>~</span><input id="f-visit_time_end" data-field="visit_time_end" type="time" value="${esc(form.visit_time_end ?? "")}" aria-label="방문 종료 시간"></div>`,
     })}<div class="two-col">${field({
       label: "방문 예약일",
       auto: auto("visit_date"),
@@ -435,6 +466,12 @@ https://www.revu.net/campaign/123456`;
       hint: "쉼표로 구분",
       body: `<input id="f-keywords" data-field="keywords" value="${esc(form.keywords)}" placeholder="예) 연남동 맛집, 홍대 데이트" maxlength="1000">`,
     })}${field({
+      label: "미션",
+      auto: auto("mission"),
+      autoKey: "mission",
+      hint: "번호와 링크를 그대로 붙여 넣어요",
+      body: `<textarea id="f-mission" data-field="mission" rows="8" placeholder="1. 제목에 키워드를 넣어 주세요" maxlength="8000">${esc(form.mission)}</textarea>${form.mission ? `<div class="mission preview">${linkify(form.mission)}</div>` : ""}`,
+    })}${field({
       label: "가이드 메모",
       auto: auto("guide"),
       autoKey: "guide",
@@ -463,7 +500,7 @@ https://www.revu.net/campaign/123456`;
       if (viewState.status === "unwritten" ? !RN.needsReview(campaign.status) : viewState.status && campaign.status !== viewState.status) return false;
       if (viewState.platform && campaign.platform !== viewState.platform) return false;
       if (!q) return true;
-      return [campaign.business_name, campaign.platform, campaign.category, campaign.offer, campaign.region, campaign.keywords, campaign.guide].join(" ").toLowerCase().includes(q);
+      return [campaign.business_name, campaign.platform, campaign.category, campaign.offer, campaign.region, campaign.phone, campaign.keywords, campaign.mission, campaign.guide].join(" ").toLowerCase().includes(q);
     });
     if (viewState.sort !== "recent") {
       const next = new Map(filtered.map((campaign) => [campaign.id, RN.upcomingEvents([campaign], today)[0]?.date ?? null]));
@@ -483,7 +520,7 @@ https://www.revu.net/campaign/123456`;
     const list = filtered.length === 0
       ? emptyBox(state.campaigns.length ? "조건에 맞는 캠페인이 없어요" : "아직 등록된 캠페인이 없어요")
       : `<div class="stack-sm">${filtered.map((campaign) => campaignCard(campaign, today)).join("")}</div>`;
-    return `<div class="stack">${pageHeader("캠페인 목록", `전체 ${state.campaigns.length}건`)}<div class="search">${icons.search(18)}<input id="search-q" type="search" placeholder="업체명, 지역, 키워드 검색" value="${esc(viewState.query)}" aria-label="검색"></div><div class="chips scroll" role="group" aria-label="상태 필터">${chipHtml}</div><div class="row gap"><select id="filter-platform" class="select" aria-label="플랫폼"><option value="">모든 플랫폼</option>${options}</select><select id="filter-sort" class="select" aria-label="정렬"><option value="urgent"${viewState.sort === "urgent" ? " selected" : ""}>급한 순</option><option value="recent"${viewState.sort === "recent" ? " selected" : ""}>최근 등록순</option></select></div>${list}</div>`;
+    return `<div class="stack">${pageHeader("캠페인 목록", `전체 ${state.campaigns.length}건`)}<div class="search">${icons.search(18)}<input id="search-q" type="search" placeholder="업체명, 지역, 키워드 검색" value="${esc(viewState.query)}" aria-label="검색"></div><div class="chips scroll" role="group" aria-label="상태 필터">${chipHtml}</div><div class="row gap"><select id="filter-platform" class="select" aria-label="체험단"><option value="">모든 체험단</option>${options}</select><select id="filter-sort" class="select" aria-label="정렬"><option value="urgent"${viewState.sort === "urgent" ? " selected" : ""}>급한 순</option><option value="recent"${viewState.sort === "recent" ? " selected" : ""}>최근 등록순</option></select></div>${list}</div>`;
   }
 
   function calendarPage() {
@@ -552,7 +589,7 @@ https://www.revu.net/campaign/123456`;
 
   function settingsPage() {
     const rows = viewState.list.map((name, index) => `<li><span>${esc(name)}</span><div class="row gap-sm"><button type="button" class="icon-btn sm" data-action="platform-move" data-index="${index}" data-delta="-1" ${index === 0 ? "disabled" : ""} aria-label="${esc(name)} 위로">↑</button><button type="button" class="icon-btn sm" data-action="platform-move" data-index="${index}" data-delta="1" ${index === viewState.list.length - 1 ? "disabled" : ""} aria-label="${esc(name)} 아래로">↓</button><button type="button" class="icon-btn sm danger-text" data-action="platform-remove" data-value="${esc(name)}" aria-label="${esc(name)} 삭제">${icons.trash(16)}</button></div></li>`).join("");
-    return `<div class="stack">${pageHeader("설정", "", backButton())}<section class="card"><div class="card-title-row"><h3 class="card-title">플랫폼 목록</h3>${viewState.status ? `<span class="muted small">${esc(viewState.status)}</span>` : ""}</div><p class="muted small">입력 화면에 표시되고, 당첨 메시지에서 이 이름을 찾아 자동으로 선택해요.</p><ul class="platform-list">${rows}</ul><form class="row gap" data-form="platform"><input id="platform-name" value="${esc(viewState.name)}" placeholder="새 플랫폼 이름" maxlength="40"><button id="platform-add" type="submit" class="btn primary" ${!viewState.name.trim() || viewState.list.length >= 30 ? "disabled" : ""}>추가</button></form><button type="button" class="btn ghost small" data-action="platform-reset">기본값으로 되돌리기</button></section><p class="muted small center">로그인 없이 이 브라우저에만 저장돼요. 다른 휴대폰이나 PC에서는 비어 있고, 새로고침하거나 탭을 닫아도 여기 데이터는 남아요.</p></div>`;
+    return `<div class="stack">${pageHeader("설정", "", backButton())}<section class="card"><div class="card-title-row"><h3 class="card-title">체험단 목록</h3>${viewState.status ? `<span class="muted small">${esc(viewState.status)}</span>` : ""}</div><p class="muted small">입력 화면에 표시되고, 당첨 메시지에서 이 이름을 찾아 자동으로 선택해요.</p><ul class="platform-list">${rows}</ul><form class="row gap" data-form="platform"><input id="platform-name" value="${esc(viewState.name)}" placeholder="새 체험단 이름" maxlength="40"><button id="platform-add" type="submit" class="btn primary" ${!viewState.name.trim() || viewState.list.length >= 30 ? "disabled" : ""}>추가</button></form><button type="button" class="btn ghost small" data-action="platform-reset">기본값으로 되돌리기</button></section><p class="muted small center">로그인 없이 이 브라우저에만 저장돼요. 다른 휴대폰이나 PC에서는 비어 있고, 새로고침하거나 탭을 닫아도 여기 데이터는 남아요.</p></div>`;
   }
 
   function infoRow(label, valueHtml) {
@@ -575,8 +612,13 @@ https://www.revu.net/campaign/123456`;
     const reviewOpen = !RN.isReviewDone(campaign.status) && campaign.status !== "취소";
     const steps = RN.FLOW_STATUSES.map((status, index) => `<li class="${index < stepIndex ? "past" : ""}${index === stepIndex ? " current" : ""}"><button type="button" data-action="flow-status" data-value="${esc(status)}" ${viewState.busy ? "disabled" : ""}><span class="step-dot">${index + 1}</span><span class="step-label">${esc(status)}</span></button></li>`).join("");
     const visitRange = RN.formatRange(campaign.visit_start, campaign.visit_end);
+    const timeRange = RN.formatTimeRange(campaign.visit_time_start, campaign.visit_time_end);
+    const phoneLink = campaign.phone && telHref(campaign.phone);
     const rows = [
+      infoRow("체험단", campaign.platform ? esc(campaign.platform) : '<span class="muted">미정</span>'),
+      infoRow("연락할 번호", phoneLink ? `<a class="icon-link" href="${esc(phoneLink)}">${esc(campaign.phone)}</a>` : '<span class="muted">미정</span>'),
       infoRow("방문 가능 기간", `${visitRange ? esc(visitRange) : '<span class="muted">미정</span>'}${visitOpen && !campaign.visit_date && campaign.visit_end ? ddayBadge(campaign.visit_end, state.today) : ""}`),
+      infoRow("방문 가능 시간", timeRange ? esc(timeRange) : '<span class="muted">미정</span>'),
       infoRow("방문 예약일", `${campaign.visit_date ? esc(RN.formatShort(campaign.visit_date)) : '<span class="muted">미정</span>'}${visitOpen && campaign.visit_date ? ddayBadge(campaign.visit_date, state.today) : ""}`),
       infoRow("리뷰 마감일", `${campaign.deadline ? esc(RN.formatShort(campaign.deadline)) : '<span class="muted">미정</span>'}${reviewOpen && campaign.deadline ? ddayBadge(campaign.deadline, state.today) : ""}`),
     ];
@@ -587,11 +629,12 @@ https://www.revu.net/campaign/123456`;
     const keywordBlock = keywords.length
       ? `<section class="card"><div class="card-title-row"><h3 class="card-title">필수 키워드</h3><button type="button" class="btn small ghost" data-action="copy-keywords">${viewState.copied ? "복사됨" : "복사"}</button></div><div class="chips wrap">${keywords.map((keyword) => `<span class="chip keyword">${esc(keyword)}</span>`).join("")}</div></section>`
       : "";
+    const mission = `<section class="card"><h3 class="card-title">미션</h3>${campaign.mission ? `<div class="mission">${linkify(campaign.mission)}</div>` : '<p class="muted">미정</p>'}</section>`;
     const guide = campaign.guide ? `<section class="card"><h3 class="card-title">가이드 메모</h3><p class="pre">${esc(campaign.guide)}</p></section>` : "";
     const links = (campaign.campaign_url || campaign.review_url)
       ? `<section class="card links">${campaign.campaign_url ? safeLink(campaign.campaign_url, "캠페인 페이지") : ""}${campaign.review_url ? safeLink(campaign.review_url, "작성한 리뷰") : ""}</section>`
       : "";
-    return `<div class="stack">${pageHeader("캠페인 상세", "", `<div class="row gap-sm">${backButton()}<a href="#/c/${encodeURIComponent(campaign.id)}/edit" class="btn small">수정</a></div>`)}<section class="card hero${campaign.status === "취소" ? " cancelled" : ""}"><div class="cc-meta">${campaign.platform ? `<span class="chip platform">${esc(campaign.platform)}</span>` : ""}${campaign.category ? `<span class="cc-category">${esc(campaign.category)}</span>` : ""}${statusBadge(campaign.status)}</div><h2 class="hero-name">${esc(campaign.business_name)}</h2>${campaign.offer ? `<p class="hero-offer">${esc(campaign.offer)}</p>` : ""}${campaign.amount != null ? `<p class="hero-amount">${esc(RN.formatWon(campaign.amount))} 상당</p>` : ""}${campaign.status !== "취소" ? `<div class="hero-toggle">${reviewToggle(campaign, false)}</div>` : ""}</section><section class="card"><h3 class="card-title">진행 상태</h3><ol class="stepper">${steps}</ol><button type="button" class="btn small ghost${campaign.status === "취소" ? "" : " danger-text"}" data-action="cancel-toggle" ${viewState.busy ? "disabled" : ""}>${campaign.status === "취소" ? "취소 되돌리기" : "캠페인 취소로 표시"}</button></section><section class="card info">${rows.join("")}</section>${keywordBlock}${guide}${links}<button type="button" class="btn ghost danger-text" data-action="delete-campaign" data-id="${esc(campaign.id)}">${icons.trash(16)} 삭제</button></div>`;
+    return `<div class="stack">${pageHeader("캠페인 상세", "", `<div class="row gap-sm">${backButton()}<a href="#/c/${encodeURIComponent(campaign.id)}/edit" class="btn small">수정</a></div>`)}<section class="card hero${campaign.status === "취소" ? " cancelled" : ""}"><div class="cc-meta">${campaign.platform ? `<span class="chip platform">${esc(campaign.platform)}</span>` : ""}${campaign.category ? `<span class="cc-category">${esc(campaign.category)}</span>` : ""}${statusBadge(campaign.status)}</div><h2 class="hero-name">${esc(campaign.business_name)}</h2>${campaign.offer ? `<p class="hero-offer">${esc(campaign.offer)}</p>` : ""}${campaign.amount != null ? `<p class="hero-amount">${esc(RN.formatWon(campaign.amount))} 상당</p>` : ""}${campaign.status !== "취소" ? `<div class="hero-toggle">${reviewToggle(campaign, false)}</div>` : ""}</section><section class="card"><h3 class="card-title">진행 상태</h3><ol class="stepper">${steps}</ol><button type="button" class="btn small ghost${campaign.status === "취소" ? "" : " danger-text"}" data-action="cancel-toggle" ${viewState.busy ? "disabled" : ""}>${campaign.status === "취소" ? "취소 되돌리기" : "캠페인 취소로 표시"}</button></section><section class="card info">${rows.join("")}</section>${keywordBlock}${mission}${guide}${links}<button type="button" class="btn ghost danger-text" data-action="delete-campaign" data-id="${esc(campaign.id)}">${icons.trash(16)} 삭제</button></div>`;
   }
 
   function showToast(message, undo) {
@@ -663,10 +706,23 @@ https://www.revu.net/campaign/123456`;
       clearAuto(["amount"]);
       return;
     }
-    const value = el.type === "date" ? (el.value || null) : el.value;
+    const value = el.type === "date" || el.type === "time" ? (el.value || null) : el.value;
     viewState.form[key] = value;
     if (key === "visit_start" || key === "visit_end") clearAuto(["visit_start", "visit_end"]);
+    else if (key === "visit_time_start" || key === "visit_time_end") clearAuto(["visit_time_start", "visit_time_end"]);
     else clearAuto([key]);
+    if (key === "mission") {
+      let preview = el.parentElement && el.parentElement.querySelector(".mission.preview");
+      if (String(value).trim()) {
+        if (!preview && el.parentElement) {
+          el.insertAdjacentHTML("afterend", '<div class="mission preview"></div>');
+          preview = el.parentElement.querySelector(".mission.preview");
+        }
+        if (preview) preview.innerHTML = linkify(value);
+      } else if (preview) {
+        preview.remove();
+      }
+    }
     if (key === "visit_date" && value && viewState.form.status === "당첨") {
       viewState.form.status = "방문 예정";
       clearAuto(["status"]);

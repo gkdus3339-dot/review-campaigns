@@ -52,6 +52,7 @@ const names = [
   "dDayLabel",
   "formatShort",
   "formatRange",
+  "formatTimeRange",
   "monthKey",
   "monthLabel",
   "addMonths",

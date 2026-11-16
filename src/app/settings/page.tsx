@@ -50,7 +50,7 @@ export default function SettingsPage() {
       />
       <section className="card">
         <div className="card-title-row">
-          <h3 className="card-title">플랫폼 목록</h3>
+          <h3 className="card-title">체험단 목록</h3>
           {status && <span className="muted small">{status}</span>}
         </div>
         <p className="muted small">입력 화면에 표시되고, 당첨 메시지에서 이 이름을 찾아 자동으로 선택해요.</p>
@@ -91,7 +91,7 @@ export default function SettingsPage() {
             void save([...list, n]);
           }}
         >
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="새 플랫폼 이름" maxLength={40} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="새 체험단 이름" maxLength={40} />
           <button type="submit" className="btn primary" disabled={!name.trim() || list.length >= 30}>
             추가
           </button>

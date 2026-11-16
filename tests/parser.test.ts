@@ -112,7 +112,7 @@ https://www.reviewnote.co.kr/campaigns/55555`,
   assert.equal(fields.category, "제품");
 });
 
-test("SMS without platform: 「」 name, reservation date, 까지 deadline, phone number ignored", () => {
+test("SMS without platform: 「」 name, reservation date, 까지 deadline, phone kept", () => {
   const { fields } = parseWinMessage(
     `[Web발신]
 (광고) 체험단 당첨 안내
@@ -131,6 +131,9 @@ test("SMS without platform: 「」 name, reservation date, 까지 deadline, phon
   assert.equal(fields.deadline, "2026-12-20");
   assert.equal(fields.status, "방문 예정");
   assert.equal(fields.category, "숙박");
+  assert.equal(fields.phone, "010-1234-5678");
+  assert.equal(fields.visit_time_start, undefined);
+  assert.equal(fields.visit_time_end, undefined);
 });
 
 test("free-form sentences: 부터/까지 range, 2인 식사권 6만원", () => {
@@ -183,6 +186,59 @@ test("custom platform from the user's list and 3만5천원", () => {
   assert.equal(fields.amount, 35000);
   assert.equal(fields.visit_start, undefined);
   assert.equal(fields.visit_end, "2026-11-25");
+});
+
+test("phone, visit hours, and the 미션 block stay intact", () => {
+  const missionUrl = "https://maps.google.com/maps?q=today-pasta";
+  const { fields } = parseWinMessage(
+    `[레뷰] 오늘도파스타 체험단 선정
+연락처: 010-9876-5432
+방문 가능 시간: 11:00~15:00
+방문기간: 11.15 ~ 11.30
+
+미션
+1. 제목에 '연남동 파스타'를 넣어 주세요
+2. 사진은 15장 이상
+3. 음식, 외관, 메뉴판을 찍어 주세요
+4. 가격 비교나 허위 내용은 쓰지 마세요
+5. 구글 지도 리뷰를 남겨 주세요 ${missionUrl}
+6. 인스타그램 #오늘도파스타 #연남맛집 태그와 좋아요, 팔로우
+
+https://www.revu.net/campaign/123456`,
+    opts,
+  );
+  assert.equal(fields.platform, "레뷰");
+  assert.equal(fields.phone, "010-9876-5432");
+  assert.equal(fields.visit_time_start, "11:00");
+  assert.equal(fields.visit_time_end, "15:00");
+  assert.equal(fields.visit_start, "2026-11-15");
+  assert.equal(fields.visit_end, "2026-11-30");
+  assert.match(fields.mission ?? "", /^1\. 제목에 '연남동 파스타'/);
+  assert.match(fields.mission ?? "", /사진은 15장 이상/);
+  assert.match(fields.mission ?? "", /음식, 외관, 메뉴판/);
+  assert.match(fields.mission ?? "", /쓰지 마세요/);
+  assert.match(fields.mission ?? "", new RegExp(missionUrl.replace(/[?]/g, "\\?")));
+  assert.match(fields.mission ?? "", /#오늘도파스타 #연남맛집/);
+  assert.match(fields.mission ?? "", /좋아요, 팔로우/);
+  assert.equal(fields.mission?.includes("revu.net"), false);
+  assert.equal(fields.campaign_url, "https://www.revu.net/campaign/123456");
+});
+
+test("visit hours without a colon and a numbered guide without a 미션 heading", () => {
+  const { fields } = parseWinMessage(
+    `디너의여왕 체험단 선정
+업체명: 브런치카페 소소
+방문 가능 시간 11시~3시
+1. 제목 키워드를 지켜 주세요
+2. 인스타 태그 후 좋아요와 팔로우
+https://dinnerqueen.net/taste/12345`,
+    opts,
+  );
+  assert.equal(fields.platform, "디너의여왕");
+  assert.equal(fields.visit_time_start, "11:00");
+  assert.equal(fields.visit_time_end, "15:00");
+  assert.match(fields.mission ?? "", /^1\. 제목 키워드/);
+  assert.match(fields.mission ?? "", /2\. 인스타 태그 후 좋아요와 팔로우/);
 });
 
 test("empty or unrelated text yields nothing harmful", () => {

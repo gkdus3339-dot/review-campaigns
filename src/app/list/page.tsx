@@ -41,7 +41,7 @@ function CampaignList() {
       if (status === UNWRITTEN ? !needsReview(c.status) : status && c.status !== status) return false;
       if (platform && c.platform !== platform) return false;
       if (!q) return true;
-      return [c.business_name, c.platform, c.category, c.offer, c.region, c.keywords, c.guide]
+      return [c.business_name, c.platform, c.category, c.offer, c.region, c.phone, c.keywords, c.mission, c.guide]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -96,8 +96,8 @@ function CampaignList() {
       </div>
 
       <div className="row gap">
-        <select className="select" value={platform} onChange={(e) => setPlatform(e.target.value)} aria-label="플랫폼">
-          <option value="">모든 플랫폼</option>
+        <select className="select" value={platform} onChange={(e) => setPlatform(e.target.value)} aria-label="체험단">
+          <option value="">모든 체험단</option>
           {platformOptions.map((p) => (
             <option key={p} value={p}>
               {p}
