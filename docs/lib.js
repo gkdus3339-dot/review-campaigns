@@ -300,6 +300,7 @@ function read() {
         return {
             campaigns,
             platforms: asPlatforms(parsed.platforms),
+            sync: parsed.sync,
         };
     }
     catch (error) {
@@ -375,7 +376,7 @@ function updateLocal(id, patch) {
     if (index < 0)
         throw new Error("캠페인을 찾을 수 없습니다");
     const fields = parseCampaign(patch, true);
-    const campaign = { ...data.campaigns[index], ...fields, updated_at: new Date().toISOString() };
+    const campaign = { ...data.campaigns[index], ...fields, updated_at: new Date(Math.max(Date.now(), (Date.parse(data.campaigns[index].updated_at) || 0) + 1)).toISOString() };
     data.campaigns[index] = campaign;
     write(data);
     return campaign;

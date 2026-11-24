@@ -1,8 +1,9 @@
-/* 체험단 노트 — login-free static UI. Data stays in localStorage. */
+/* 체험단 노트 — GitHub Pages interface. */
 (function () {
   "use strict";
 
   const RN = window.RN;
+  const Sync = window.ReviewNotesSync;
   const view = document.getElementById("view");
   const nav = document.getElementById("nav");
   const toastRoot = document.getElementById("toast-root");
@@ -66,10 +67,15 @@ https://www.revu.net/campaign/123456`;
     toast: null,
     toastTimer: 0,
     statusTimer: 0,
+    sync: null,
+    syncBusy: false,
+    syncStatus: "",
   };
 
   let currentKey = null;
   let viewState = {};
+  let syncTimer;
+  let syncPending = false;
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -123,7 +129,8 @@ https://www.revu.net/campaign/123456`;
     try {
       const stored = RN.loadLocal();
       state.campaigns = stored.campaigns;
-      const platforms = RN.ensurePlatform(stored.platforms, "링블");
+      state.sync = stored.sync || null;
+      const platforms = state.sync ? stored.platforms : RN.ensurePlatform(stored.platforms, "링블");
       state.platforms = platforms.join("\n") === stored.platforms.join("\n") ? stored.platforms : RN.savePlatformsLocal(platforms);
       state.error = null;
     } catch (error) {
@@ -135,6 +142,7 @@ https://www.revu.net/campaign/123456`;
 
   function replaceCampaign(campaign) {
     state.campaigns = state.campaigns.map((item) => (item.id === campaign.id ? campaign : item));
+    scheduleSync();
   }
 
   function findCampaign(id) {
@@ -177,6 +185,7 @@ https://www.revu.net/campaign/123456`;
         mode: route.name === "edit" ? "edit" : "create",
         id: campaign ? campaign.id : null,
         form: initial,
+        original: { ...initial },
         amountText: initial.amount != null ? initial.amount.toLocaleString("ko-KR") : "",
         auto: new Set(),
         pasteOpen: route.name === "new",
@@ -196,7 +205,7 @@ https://www.revu.net/campaign/123456`;
     }
     if (route.name === "calendar") return { month: null, selected: null };
     if (route.name === "stats") return { open: null };
-    if (route.name === "settings") return { list: state.platforms.slice(), name: "", status: null };
+    if (route.name === "settings") return { list: state.platforms.slice(), name: "", status: null, syncCode: "", showSyncCode: false };
     if (route.name === "detail") return { copied: false, busy: false };
     return {};
   }
@@ -589,9 +598,35 @@ https://www.revu.net/campaign/123456`;
     return `<div class="stack">${pageHeader("절약 금액", "체험단으로 아낀 금액 (취소 제외, 방문월 기준)")}<div class="summary-grid"><div class="summary savings"><span class="summary-label">${year}년 누적</span><strong class="summary-value">${esc(RN.formatWon(summary.total))}</strong><span class="summary-foot">캠페인 ${summary.count}건</span></div><div class="summary plain"><span class="summary-label">이번 달</span><strong class="summary-value">${esc(RN.formatWon(months.get(current)?.total ?? 0))}</strong><span class="summary-foot">캠페인 ${months.get(current)?.campaigns.length ?? 0}건</span></div></div><section class="card chart-card"><h2 class="section-title">최근 6개월</h2><div class="bar-chart" role="img" aria-label="최근 월별 절약 금액 막대그래프">${bars}</div></section><section class="section"><h2 class="section-title">월별 내역</h2>${rows}${missingAmount > 0 ? `<p class="muted small pad">제공 금액이 비어 있는 캠페인 ${missingAmount}건은 0원으로 계산돼요.</p>` : ""}</section></div>`;
   }
 
+  function syncSettings() {
+    if (!Sync || !window.ReviewNotesSyncConfig) return "";
+    const busy = state.syncBusy ? "disabled" : "";
+    const status = `<p class="muted small" id="sync-status" role="status">${esc(state.syncStatus)}</p>`;
+    if (state.sync) {
+      const code = viewState.showSyncCode
+        ? `<label class="field"><span class="field-label">연결 코드</span><input id="sync-share" type="text" value="${esc(state.sync.code)}" aria-label="연결 코드" readonly></label>
+           <p class="muted small">다른 기기에서 같은 앱의 설정을 열고 이 코드를 붙여넣으세요. 이 코드가 있으면 기록을 열 수 있어요.</p>`
+        : "";
+      return `<section class="card stack-sm"><h3 class="card-title">기기 동기화</h3>
+        <p class="muted small">이 기기가 연결되어 있어요. 다른 기기에서도 같은 기록을 볼 수 있어요.</p>
+        <div class="row wrap gap">
+          <button type="button" class="btn primary small" data-action="sync-code">${viewState.showSyncCode ? "코드 복사" : "연결 코드 보기"}</button>
+          <button type="button" class="btn small" data-action="sync-now" id="sync-now" ${busy}>지금 동기화</button>
+          <button type="button" class="btn ghost small" data-action="sync-disconnect" id="sync-disconnect" ${busy}>이 기기 연결 해제</button>
+        </div>${code}${status}</section>`;
+    }
+    return `<section class="card stack-sm"><h3 class="card-title">기기 동기화</h3>
+      <p class="muted small">PC와 휴대폰에서 같은 기록을 보려면 기기를 한 번 연결하세요. 연결하면 이 브라우저의 기록이 암호화되어 저장되고, 기존 기록도 함께 가져와요.</p>
+      <button type="button" class="btn primary" data-action="sync-create" ${busy}>이 기기에서 동기화 시작</button>
+      <form class="stack-sm" data-form="sync-join">
+        <label class="field"><span class="field-label">다른 기기의 연결 코드</span><input id="sync-join" autocapitalize="none" autocomplete="off" spellcheck="false" required value="${esc(viewState.syncCode)}" ${busy}></label>
+        <button type="submit" class="btn" ${busy}>코드로 연결</button>
+      </form>${status}</section>`;
+  }
+
   function settingsPage() {
     const rows = viewState.list.map((name, index) => `<li><span>${esc(name)}</span><div class="row gap-sm"><button type="button" class="icon-btn sm" data-action="platform-move" data-index="${index}" data-delta="-1" ${index === 0 ? "disabled" : ""} aria-label="${esc(name)} 위로">↑</button><button type="button" class="icon-btn sm" data-action="platform-move" data-index="${index}" data-delta="1" ${index === viewState.list.length - 1 ? "disabled" : ""} aria-label="${esc(name)} 아래로">↓</button><button type="button" class="icon-btn sm danger-text" data-action="platform-remove" data-value="${esc(name)}" aria-label="${esc(name)} 삭제">${icons.trash(16)}</button></div></li>`).join("");
-    return `<div class="stack">${pageHeader("설정", "", backButton())}<section class="card"><div class="card-title-row"><h3 class="card-title">체험단 목록</h3>${viewState.status ? `<span class="muted small">${esc(viewState.status)}</span>` : ""}</div><p class="muted small">입력 화면에 표시되고, 당첨 메시지에서 이 이름을 찾아 자동으로 선택해요.</p><ul class="platform-list">${rows}</ul><form class="row gap" data-form="platform"><input id="platform-name" value="${esc(viewState.name)}" placeholder="새 체험단 이름" maxlength="40"><button id="platform-add" type="submit" class="btn primary" ${!viewState.name.trim() || viewState.list.length >= 30 ? "disabled" : ""}>추가</button></form><button type="button" class="btn ghost small" data-action="platform-reset">기본값으로 되돌리기</button></section><p class="muted small center">로그인 없이 이 브라우저에만 저장돼요. 다른 휴대폰이나 PC에서는 비어 있고, 새로고침하거나 탭을 닫아도 여기 데이터는 남아요.</p></div>`;
+    return `<div class="stack">${pageHeader("설정", "", backButton())}${syncSettings()}<section class="card"><div class="card-title-row"><h3 class="card-title">체험단 목록</h3>${viewState.status ? `<span class="muted small">${esc(viewState.status)}</span>` : ""}</div><p class="muted small">입력 화면에 표시되고, 당첨 메시지에서 이 이름을 찾아 자동으로 선택해요.</p><ul class="platform-list">${rows}</ul><form class="row gap" data-form="platform"><input id="platform-name" value="${esc(viewState.name)}" placeholder="새 체험단 이름" maxlength="40"><button id="platform-add" type="submit" class="btn primary" ${!viewState.name.trim() || viewState.list.length >= 30 ? "disabled" : ""}>추가</button></form><button type="button" class="btn ghost small" data-action="platform-reset">기본값으로 되돌리기</button></section></div>`;
   }
 
   function infoRow(label, valueHtml) {
@@ -796,10 +831,14 @@ https://www.revu.net/campaign/123456`;
     try {
       if (viewState.mode === "edit") {
         const id = viewState.id;
-        replaceCampaign(RN.updateLocal(id, input));
+        const changes = Object.fromEntries(RN.CAMPAIGN_FIELDS
+          .filter((key) => input[key] !== viewState.original[key])
+          .map((key) => [key, input[key]]));
+        if (Object.keys(changes).length) replaceCampaign(RN.updateLocal(id, changes));
         replaceHash(`#/c/${encodeURIComponent(id)}`);
       } else {
         const campaign = RN.createLocal(input);
+        scheduleSync();
         state.campaigns = [campaign].concat(state.campaigns.filter((item) => item.id !== campaign.id));
         replaceHash(`#/c/${encodeURIComponent(campaign.id)}`);
       }
@@ -813,6 +852,7 @@ https://www.revu.net/campaign/123456`;
   function savePlatforms(next) {
     try {
       state.platforms = RN.savePlatformsLocal(next);
+      scheduleSync();
       viewState.list = state.platforms.slice();
       viewState.status = "저장했어요";
     } catch (error) {
@@ -846,6 +886,43 @@ https://www.revu.net/campaign/123456`;
       currentKey = null;
       boot();
       render();
+      return;
+    }
+    if (action === "sync-create") {
+      void connectDevice("");
+      return;
+    }
+    if (action === "sync-now") {
+      void runSync();
+      return;
+    }
+    if (action === "sync-code") {
+      if (!viewState.showSyncCode) {
+        viewState.showSyncCode = true;
+        render();
+        return;
+      }
+      const input = document.getElementById("sync-share");
+      void Promise.resolve().then(() => navigator.clipboard.writeText(input.value))
+        .then(() => showToast("연결 코드를 복사했어요."))
+        .catch(() => {
+          input.focus();
+          input.select();
+        });
+      return;
+    }
+    if (action === "sync-disconnect") {
+      if (!state.syncBusy && confirm("이 기기만 연결을 해제할까요? 이 기기에 저장된 기록은 남아요.")) {
+        try {
+          Sync.disconnect();
+          refreshSyncedData();
+          state.syncStatus = "";
+          viewState.showSyncCode = false;
+          render();
+        } catch (error) {
+          showToast(error.message);
+        }
+      }
       return;
     }
     if (action === "back") {
@@ -982,6 +1059,7 @@ https://www.revu.net/campaign/123456`;
       if (!confirm(`'${campaign.business_name}' 캠페인을 삭제할까요?`)) return;
       try {
         RN.removeLocal(campaign.id);
+        scheduleSync();
         state.campaigns = state.campaigns.filter((item) => item.id !== campaign.id);
         replaceHash("#/list");
       } catch (error) {
@@ -1002,6 +1080,10 @@ https://www.revu.net/campaign/123456`;
     if (el.id === "search-q") {
       viewState.query = el.value;
       render();
+      return;
+    }
+    if (el.id === "sync-join") {
+      viewState.syncCode = el.value;
       return;
     }
     if (el.id === "platform-name") {
@@ -1032,6 +1114,12 @@ https://www.revu.net/campaign/123456`;
   document.addEventListener("submit", (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
+    if (form.dataset.form === "sync-join") {
+      event.preventDefault();
+      const code = viewState.syncCode.trim();
+      if (code) void connectDevice(code);
+      return;
+    }
     if (form.dataset.form === "campaign") {
       submitCampaign(event);
       return;
@@ -1045,7 +1133,105 @@ https://www.revu.net/campaign/123456`;
     }
   });
 
+  function paintSyncStatus() {
+    const status = document.getElementById("sync-status");
+    if (status && status.textContent !== state.syncStatus) status.textContent = state.syncStatus;
+    for (const id of ["sync-now", "sync-disconnect"]) {
+      const button = document.getElementById(id);
+      if (button) button.disabled = state.syncBusy;
+    }
+  }
+
+  function refreshSyncedData() {
+    const next = RN.loadLocal();
+    const connectionChanged = state.sync?.code !== next.sync?.code;
+    const dataChanged = JSON.stringify(state.campaigns) !== JSON.stringify(next.campaigns)
+      || JSON.stringify(state.platforms) !== JSON.stringify(next.platforms);
+    state.campaigns = next.campaigns;
+    state.platforms = next.platforms;
+    state.sync = next.sync || null;
+    const route = parseRoute();
+    if (route.name === "settings") {
+      viewState.list = state.platforms.slice();
+      if (connectionChanged) viewState.showSyncCode = false;
+    }
+    if (dataChanged && route.name === "edit" && viewState.missing && findCampaign(route.id)) {
+      viewState = freshView(route);
+      render();
+    } else if ((dataChanged || connectionChanged) && route.name !== "edit" && route.name !== "new") {
+      render();
+    }
+  }
+
+  function scheduleSync() {
+    if (!Sync || !state.sync) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(runSync, 250);
+  }
+
+  async function runSync() {
+    if (!Sync || !state.sync) return;
+    if (state.syncBusy) {
+      syncPending = true;
+      return;
+    }
+    state.syncBusy = true;
+    paintSyncStatus();
+    try {
+      await Sync.sync();
+      state.syncStatus = "동기화 완료";
+      refreshSyncedData();
+    } catch {
+      state.syncStatus = "동기화 대기 중. 연결이 되면 다시 시도해요.";
+    } finally {
+      state.syncBusy = false;
+      paintSyncStatus();
+      if (syncPending) {
+        syncPending = false;
+        scheduleSync();
+      }
+    }
+  }
+
+  async function connectDevice(code) {
+    if (!Sync || state.syncBusy || state.sync) return;
+    state.syncBusy = true;
+    state.syncStatus = "연결 중…";
+    render();
+    try {
+      await Sync.connect(code);
+      state.syncStatus = "동기화 완료";
+      refreshSyncedData();
+      if (parseRoute().name === "settings") {
+        viewState.syncCode = "";
+        viewState.showSyncCode = !code;
+      }
+      scheduleSync();
+    } catch (error) {
+      state.syncStatus = error.name === "AbortError" ? "연결 시간이 초과됐어요. 다시 시도해 주세요." : error.message;
+    } finally {
+      state.syncBusy = false;
+      if (parseRoute().name === "settings") render();
+    }
+  }
+
   window.addEventListener("hashchange", () => render());
+  if (Sync) {
+    window.addEventListener("online", scheduleSync);
+    window.addEventListener("pageshow", scheduleSync);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) scheduleSync();
+    });
+    window.addEventListener("storage", (event) => {
+      if (event.key !== Sync.storageKey) return;
+      refreshSyncedData();
+      scheduleSync();
+    });
+    setInterval(() => {
+      if (!document.hidden) void runSync();
+    }, Sync.pollMilliseconds);
+  }
   boot();
   render();
+  scheduleSync();
 })();

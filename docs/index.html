@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f5f6fa" />
     <meta name="color-scheme" content="light" />
-    <meta name="description" content="블로그 체험단 일정, 리뷰 마감, 절약 금액을 로그인 없이 이 브라우저에만 저장합니다." />
+    <meta name="description" content="블로그 체험단 일정, 리뷰 마감, 절약 금액을 기록하고 PC와 모바일에서 함께 관리하세요." />
     <title>체험단 노트</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <!-- 로그인 없는 정적 버전. 데이터는 이 브라우저의 localStorage(review-notes.v1)에만 있습니다. -->
     <div class="app">
       <main class="content" id="view">
         <noscript>
@@ -21,7 +20,9 @@
       <nav class="bottom-nav" id="nav" aria-label="주요 메뉴"></nav>
     </div>
     <div id="toast-root"></div>
-    <script src="lib.js"></script>
-    <script src="app.js"></script>
+    <script src="lib.js?v=2"></script>
+    <script src="sync-config.js?v=2"></script>
+    <script src="sync.js?v=2"></script>
+    <script src="app.js?v=2"></script>
   </body>
 </html>
