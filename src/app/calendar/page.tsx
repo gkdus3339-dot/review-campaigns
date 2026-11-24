@@ -6,7 +6,7 @@ import { useData } from "@/components/DataProvider";
 import { ChevronLeft, ChevronRight } from "@/components/Icons";
 import { ErrorBox, Loading, PageHeader } from "@/components/ui";
 import { addMonths, formatShort, monthKey, monthLabel, pad, parseISO, WEEKDAYS } from "@/lib/dates";
-import { campaignEvents, CampaignEvent, EVENT_LABEL, upcomingEvents } from "@/lib/events";
+import { campaignEvents, CampaignEvent, groupCampaignEvents, upcomingEvents } from "@/lib/events";
 
 export default function CalendarPage() {
   const { ready, error, reload, today, campaigns } = useData();
@@ -40,8 +40,10 @@ export default function CalendarPage() {
   const monthEvents = Array.from(byDate.entries()).filter(([date]) => date.startsWith(current));
   const visits = monthEvents.flatMap(([, list]) => list).filter((e) => e.kind !== "deadline").length;
   const deadlines = monthEvents.flatMap(([, list]) => list).filter((e) => e.kind === "deadline").length;
-  const dayEvents = byDate.get(day) ?? [];
-  const monthAgenda = upcomingEvents(campaigns, today).filter((e) => e.date.startsWith(current) && e.date >= day);
+  const dayAgenda = groupCampaignEvents(byDate.get(day) ?? []);
+  const monthAgenda = groupCampaignEvents(
+    upcomingEvents(campaigns, today).filter((e) => e.date.startsWith(current) && e.date >= day),
+  );
 
   const go = (delta: number) => {
     const next = addMonths(current, delta);
@@ -124,9 +126,9 @@ export default function CalendarPage() {
       <section className="section">
         <h2 className="section-title">
           {formatShort(day)} {day === today && <span className="chip">오늘</span>}
-          <span className="count">{dayEvents.length}</span>
+          <span className="count">{dayAgenda.length}</span>
         </h2>
-        {dayEvents.length === 0 ? (
+        {dayAgenda.length === 0 ? (
           <>
             <p className="muted pad">이 날은 일정이 없어요.</p>
             {monthAgenda.length > 0 && (
@@ -135,8 +137,8 @@ export default function CalendarPage() {
                   {Number(current.slice(5))}월 남은 일정 <span className="count">{monthAgenda.length}</span>
                 </h2>
                 <div className="stack-sm">
-                  {monthAgenda.map((e) => (
-                    <CampaignCard key={e.key} campaign={e.campaign} event={e} today={today} />
+                  {monthAgenda.map(({ campaign, events }) => (
+                    <CampaignCard key={campaign.id} campaign={campaign} events={events} today={today} />
                   ))}
                 </div>
               </>
@@ -144,14 +146,8 @@ export default function CalendarPage() {
           </>
         ) : (
           <div className="stack-sm">
-            {dayEvents.map((e) => (
-              <div key={e.key}>
-                <p className={`event-caption k-${e.kind}`}>
-                  {EVENT_LABEL[e.kind]}
-                  {e.done && " · 완료"}
-                </p>
-                <CampaignCard campaign={e.campaign} event={e.done ? null : e} today={today} />
-              </div>
+            {dayAgenda.map(({ campaign, events }) => (
+              <CampaignCard key={campaign.id} campaign={campaign} events={events} today={today} />
             ))}
           </div>
         )}
