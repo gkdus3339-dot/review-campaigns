@@ -68,11 +68,7 @@ export function CampaignForm({
   const [error, setError] = useState<string | null>(null);
 
   const set = <K extends Key>(key: K, value: CampaignInput[K]) => {
-    setForm((f) => {
-      const next = { ...f, [key]: value };
-      if (key === "visit_date" && value && f.status === "당첨") next.status = "방문 예정";
-      return next;
-    });
+    setForm((f) => ({ ...f, [key]: value }));
     setAuto((a) => {
       if (!a.has(key)) return a;
       const n = new Set(a);

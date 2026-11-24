@@ -9,7 +9,6 @@ import { CheckIcon, SettingsIcon } from "./Icons";
 
 const STATUS_CLASS: Record<Status, string> = {
   당첨: "s-won",
-  "방문 예정": "s-planned",
   "방문 완료": "s-visited",
   "리뷰 작성 완료": "s-reviewed",
   종료: "s-closed",
