@@ -296,7 +296,6 @@ https://www.revu.net/campaign/123456`;
   function statusBadge(status) {
     const cls = {
       "당첨": "s-won",
-      "방문 예정": "s-planned",
       "방문 완료": "s-visited",
       "리뷰 작성 완료": "s-reviewed",
       "종료": "s-closed",
@@ -767,13 +766,6 @@ https://www.revu.net/campaign/123456`;
       } else if (preview) {
         preview.remove();
       }
-    }
-    if (key === "visit_date" && value && viewState.form.status === "당첨") {
-      viewState.form.status = "방문 예정";
-      clearAuto(["status"]);
-      document.querySelectorAll('[data-action="set-status"]').forEach((button) => {
-        button.classList.toggle("active", button.dataset.value === viewState.form.status);
-      });
     }
   }
 

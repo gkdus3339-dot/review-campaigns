@@ -71,8 +71,8 @@ function addMonths(key, delta) {
 }
 
 /* src/lib/types.ts */
-const STATUSES = ["당첨", "방문 예정", "방문 완료", "리뷰 작성 완료", "종료", "취소"];
-const FLOW_STATUSES = ["당첨", "방문 예정", "방문 완료", "리뷰 작성 완료", "종료"];
+const STATUSES = ["당첨", "방문 완료", "리뷰 작성 완료", "종료", "취소"];
+const FLOW_STATUSES = ["당첨", "방문 완료", "리뷰 작성 완료", "종료"];
 const CATEGORIES = ["맛집", "카페", "뷰티", "숙박", "제품", "생활/서비스", "기타"];
 const DEFAULT_PLATFORMS = ["레뷰", "강남맛집", "디너의여왕", "리뷰노트", "링블", "기타"];
 function emptyCampaign(today) {
@@ -102,10 +102,10 @@ function emptyCampaign(today) {
 }
 /** Statuses where the review still has to be written. */
 function needsReview(status) {
-    return status === "당첨" || status === "방문 예정" || status === "방문 완료";
+    return status === "당첨" || status === "방문 완료";
 }
 function needsVisit(status) {
-    return status === "당첨" || status === "방문 예정";
+    return status === "당첨";
 }
 function isReviewDone(status) {
     return status === "리뷰 작성 완료" || status === "종료";
@@ -212,7 +212,7 @@ function amount(value) {
     return n;
 }
 function status(value) {
-    if (value == null || value === "")
+    if (value == null || value === "" || value === "방문 예정")
         return "당첨";
     if (!STATUSES.includes(value))
         throw new ValidationError("status: 알 수 없는 상태입니다");
@@ -1681,8 +1681,6 @@ function parseWinMessage(input, options) {
     const bestUrl = [...urls].sort((a, b) => pageRank(b) - pageRank(a))[0];
     const chosenUrl = labeledLink && bestUrl && pageRank(labeledLink) >= pageRank(bestUrl) ? labeledLink : (bestUrl ?? labeledLink);
     set("campaign_url", chosenUrl);
-    if (fields.visit_date)
-        set("status", "방문 예정");
     const pages = [...(options.pages ?? [])].sort((a, b) => pageRank(a.url) - pageRank(b.url));
     for (const page of pages) {
         if (pageRank(page.url) <= 0)
