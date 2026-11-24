@@ -54,3 +54,14 @@ export function upcomingEvents(campaigns: Campaign[], today: string): CampaignEv
       return order[a.kind] - order[b.kind];
     });
 }
+
+/** Keep each campaign together, ordered by its first event in the supplied list. */
+export function groupCampaignEvents(events: CampaignEvent[]) {
+  const groups = new Map<string, { campaign: Campaign; events: CampaignEvent[] }>();
+  for (const event of events) {
+    const group = groups.get(event.campaign.id);
+    if (group) group.events.push(event);
+    else groups.set(event.campaign.id, { campaign: event.campaign, events: [event] });
+  }
+  return [...groups.values()];
+}
