@@ -131,3 +131,18 @@ test("unknown codes do not overwrite existing records or start a notebook", asyn
   assert.deepEqual(pc.names(), ["기존 기록"]);
   assert.equal(cloud.rows.size, 1);
 });
+
+test("old scheduled campaigns keep their visit date under the selected status", () => {
+  const { store } = device(server());
+  const oldCampaign = store.parseCampaign({
+    ...store.emptyCampaign("2026-11-24"),
+    business_name: "기존 방문 예약",
+    status: "방문 예정",
+    visit_date: "2026-11-28",
+  }, false);
+
+  assert.equal(oldCampaign.status, "당첨");
+  assert.equal(oldCampaign.visit_date, "2026-11-28");
+  assert.equal(store.needsVisit(oldCampaign.status), true);
+  assert.equal(store.FLOW_STATUSES.includes("방문 예정"), false);
+});

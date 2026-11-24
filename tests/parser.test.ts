@@ -130,7 +130,7 @@ test("SMS without platform: 「」 name, reservation date, 까지 deadline, phon
   assert.equal(fields.offer, "1박 숙박권 제공 (15만원 상당)");
   assert.equal(fields.visit_date, "2026-12-06");
   assert.equal(fields.deadline, "2026-12-20");
-  assert.equal(fields.status, "방문 예정");
+  assert.equal(fields.status, undefined);
   assert.equal(fields.category, "숙박");
   assert.equal(fields.phone, "010-1234-5678");
   assert.equal(fields.visit_time_start, undefined);
