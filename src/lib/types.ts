@@ -1,7 +1,7 @@
-export const STATUSES = ["당첨", "방문 예정", "방문 완료", "리뷰 작성 완료", "종료", "취소"] as const;
+export const STATUSES = ["당첨", "방문 완료", "리뷰 작성 완료", "종료", "취소"] as const;
 export type Status = (typeof STATUSES)[number];
 
-export const FLOW_STATUSES: Status[] = ["당첨", "방문 예정", "방문 완료", "리뷰 작성 완료", "종료"];
+export const FLOW_STATUSES: Status[] = ["당첨", "방문 완료", "리뷰 작성 완료", "종료"];
 
 export const CATEGORIES = ["맛집", "카페", "뷰티", "숙박", "제품", "생활/서비스", "기타"] as const;
 
@@ -65,11 +65,11 @@ export function emptyCampaign(today: string): CampaignInput {
 
 /** Statuses where the review still has to be written. */
 export function needsReview(status: Status): boolean {
-  return status === "당첨" || status === "방문 예정" || status === "방문 완료";
+  return status === "당첨" || status === "방문 완료";
 }
 
 export function needsVisit(status: Status): boolean {
-  return status === "당첨" || status === "방문 예정";
+  return status === "당첨";
 }
 
 export function isReviewDone(status: Status): boolean {

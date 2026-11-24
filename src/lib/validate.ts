@@ -55,7 +55,7 @@ function amount(value: unknown): number | null {
 }
 
 function status(value: unknown): Status {
-  if (value == null || value === "") return "당첨";
+  if (value == null || value === "" || value === "방문 예정") return "당첨";
   if (!STATUSES.includes(value as Status)) throw new ValidationError("status: 알 수 없는 상태입니다");
   return value as Status;
 }

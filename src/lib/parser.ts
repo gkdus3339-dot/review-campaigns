@@ -1,6 +1,6 @@
 import { diffDays, isValidISO, pad, parseISO, toISO } from "./dates";
 import { isCampaignLink, isNoiseLink, isTalkLink } from "./fetch-pages";
-import { CATEGORIES, CampaignInput } from "./types";
+import { CATEGORIES, type CampaignInput } from "./types";
 
 export interface ParseOptions {
   /** Reference date (YYYY-MM-DD) used to infer missing years. */
@@ -1228,8 +1228,6 @@ export function parseWinMessage(input: string, options: ParseOptions): ParseResu
   const bestUrl = [...urls].sort((a, b) => pageRank(b) - pageRank(a))[0];
   const chosenUrl = labeledLink && bestUrl && pageRank(labeledLink) >= pageRank(bestUrl) ? labeledLink : (bestUrl ?? labeledLink);
   set("campaign_url", chosenUrl);
-
-  if (fields.visit_date) set("status", "방문 예정");
 
   const pages = [...(options.pages ?? [])].sort((a, b) => pageRank(a.url) - pageRank(b.url));
   for (const page of pages) {
