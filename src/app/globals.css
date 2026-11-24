@@ -275,10 +275,6 @@ input[type="time"] {
   background: var(--primary-soft);
   color: var(--primary);
 }
-.status.s-planned {
-  background: var(--visit-soft);
-  color: var(--visit);
-}
 .status.s-visited {
   background: #e6f7f8;
   color: #0e8a96;
@@ -1187,7 +1183,7 @@ input[type="date"] {
   margin: 0 0 8px;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   position: relative;
 }
 .stepper li {
