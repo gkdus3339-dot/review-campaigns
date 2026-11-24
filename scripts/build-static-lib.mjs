@@ -73,6 +73,7 @@ const names = [
   "campaignEvents",
   "EVENT_LABEL",
   "upcomingEvents",
+  "groupCampaignEvents",
   "savingsMonth",
   "monthlySavings",
   "recentMonths",
