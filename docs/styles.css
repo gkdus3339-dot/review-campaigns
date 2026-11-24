@@ -851,21 +851,6 @@ input[type="time"] {
 .dot.k-deadline {
   background: var(--deadline);
 }
-.event-caption {
-  font-size: 12px;
-  font-weight: 700;
-  margin: 0 0 4px 4px;
-}
-.event-caption.k-visit {
-  color: var(--visit);
-}
-.event-caption.k-visitEnd {
-  color: var(--visit-end);
-}
-.event-caption.k-deadline {
-  color: var(--deadline);
-}
-
 /* stats */
 .summary.plain {
   color: var(--text);

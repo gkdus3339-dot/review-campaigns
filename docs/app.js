@@ -316,12 +316,16 @@ https://www.revu.net/campaign/123456`;
     return `<button type="button" role="switch" aria-checked="${done ? "true" : "false"}" aria-label="${esc(campaign.business_name)} 리뷰 작성 완료" class="review-toggle${done ? " on" : ""}${compact ? " compact" : ""}" data-action="review" data-id="${esc(campaign.id)}"><span class="box">${done ? icons.check(14) : ""}</span><span class="txt">리뷰 완료</span></button>`;
   }
 
-  function campaignCard(campaign, today, event) {
-    const shown = event === undefined ? (RN.upcomingEvents([campaign], today)[0] ?? null) : event;
-    const overdue = shown ? RN.diffDays(today, shown.date) < 0 : false;
+  function campaignCard(campaign, today, events = RN.upcomingEvents([campaign], today)) {
+    const overdue = events.some((event) => !event.done && RN.diffDays(today, event.date) < 0);
     const cancelled = campaign.status === "취소";
-    const eventHtml = shown
-      ? `<p class="cc-event k-${shown.kind}"><span class="cc-event-label">${esc(RN.EVENT_LABEL[shown.kind])}</span><span>${esc(RN.formatShort(shown.date))}</span>${ddayBadge(shown.date, today)}${overdue ? '<span class="overdue-text">지남</span>' : ""}</p>`
+    const eventHtml = events.length
+      ? events.map((event) => {
+        const status = event.done
+          ? '<span class="muted small">완료</span>'
+          : ddayBadge(event.date, today) + (RN.diffDays(today, event.date) < 0 ? '<span class="overdue-text">지남</span>' : "");
+        return `<p class="cc-event k-${event.kind}"><span class="cc-event-label">${esc(RN.EVENT_LABEL[event.kind])}</span><span>${esc(RN.formatShort(event.date))}</span>${status}</p>`;
+      }).join("")
       : (campaign.visit_start || campaign.visit_end)
         ? `<p class="cc-event muted">방문 ${esc(RN.formatRange(campaign.visit_start, campaign.visit_end))}</p>`
         : "";
@@ -334,16 +338,17 @@ https://www.revu.net/campaign/123456`;
   function dashboard() {
     const today = state.today;
     const date = RN.parseISO(today);
-    const events = RN.upcomingEvents(state.campaigns, today);
-    const overdue = events.filter((event) => RN.diffDays(today, event.date) < 0);
-    const soon = events.filter((event) => {
-      const days = RN.diffDays(today, event.date);
+    const groups = RN.groupCampaignEvents(RN.upcomingEvents(state.campaigns, today));
+    const scheduledIds = new Set(groups.map(({ campaign }) => campaign.id));
+    const overdue = groups.filter(({ events }) => RN.diffDays(today, events[0].date) < 0);
+    const soon = groups.filter(({ events }) => {
+      const days = RN.diffDays(today, events[0].date);
       return days >= 0 && days <= 30;
     });
-    const later = events.length - overdue.length - soon.length;
+    const later = groups.length - overdue.length - soon.length;
     const unwritten = state.campaigns.filter((campaign) => RN.needsReview(campaign.status));
     const overdueReviews = unwritten.filter((campaign) => campaign.deadline && campaign.deadline < today);
-    const undated = unwritten.filter((campaign) => !campaign.deadline && !events.some((event) => event.campaign.id === campaign.id));
+    const undated = unwritten.filter((campaign) => !campaign.deadline && !scheduledIds.has(campaign.id));
     const thisMonth = RN.monthlySavings(state.campaigns).get(RN.monthKey(today));
     const tone = overdueReviews.length ? " alert" : unwritten.length ? " warn" : "";
     const foot = overdueReviews.length
@@ -359,11 +364,11 @@ https://www.revu.net/campaign/123456`;
       );
     } else {
       if (overdue.length) {
-        body += `<section class="section"><h2 class="section-title danger">기한 지남 <span class="count">${overdue.length}</span></h2><div class="stack-sm">${overdue.map((event) => campaignCard(event.campaign, today, event)).join("")}</div></section>`;
+        body += `<section class="section"><h2 class="section-title danger">기한 지남 <span class="count">${overdue.length}</span></h2><div class="stack-sm">${overdue.map(({ campaign, events }) => campaignCard(campaign, today, events)).join("")}</div></section>`;
       }
-      body += `<section class="section"><h2 class="section-title">다가오는 일정 <span class="count">${soon.length}</span></h2>${soon.length === 0 ? '<p class="muted pad">앞으로 30일 안에 예정된 방문이나 마감이 없어요.</p>' : `<div class="stack-sm">${soon.map((event) => campaignCard(event.campaign, today, event)).join("")}</div>`}${later > 0 ? `<a href="#/calendar" class="more-link">이후 일정 ${later}건 캘린더에서 보기 →</a>` : ""}</section>`;
+      body += `<section class="section"><h2 class="section-title">다가오는 일정 <span class="count">${soon.length}</span></h2>${soon.length === 0 ? '<p class="muted pad">앞으로 30일 안에 예정된 방문이나 마감이 없어요.</p>' : `<div class="stack-sm">${soon.map(({ campaign, events }) => campaignCard(campaign, today, events)).join("")}</div>`}${later > 0 ? `<a href="#/calendar" class="more-link">이후 체험단 ${later}건 캘린더에서 보기 →</a>` : ""}</section>`;
       if (undated.length) {
-        body += `<section class="section"><h2 class="section-title">날짜 미정 · 리뷰 미작성 <span class="count">${undated.length}</span></h2><div class="stack-sm">${undated.map((campaign) => campaignCard(campaign, today, null)).join("")}</div></section>`;
+        body += `<section class="section"><h2 class="section-title">날짜 미정 · 리뷰 미작성 <span class="count">${undated.length}</span></h2><div class="stack-sm">${undated.map((campaign) => campaignCard(campaign, today)).join("")}</div></section>`;
       }
       body += `<p class="muted small center">오늘 ${esc(RN.formatShort(today))} 기준 · 방문일과 리뷰 마감일이 가까운 순서</p>`;
     }
@@ -551,8 +556,10 @@ https://www.revu.net/campaign/123456`;
     const monthEvents = Array.from(byDate.values()).flat().filter((event) => event.date.startsWith(current));
     const visits = monthEvents.filter((event) => event.kind !== "deadline").length;
     const deadlines = monthEvents.filter((event) => event.kind === "deadline").length;
-    const dayEvents = byDate.get(day) || [];
-    const monthAgenda = RN.upcomingEvents(state.campaigns, today).filter((event) => event.date.startsWith(current) && event.date >= day);
+    const dayAgenda = RN.groupCampaignEvents(byDate.get(day) || []);
+    const monthAgenda = RN.groupCampaignEvents(
+      RN.upcomingEvents(state.campaigns, today).filter((event) => event.date.startsWith(current) && event.date >= day),
+    );
     const dows = RN.WEEKDAYS.map((name, index) => `<div class="cal-dow${index === 0 ? " sun" : index === 6 ? " sat" : ""}">${name}</div>`).join("");
     const cellHtml = cells.map((date, index) => {
       if (!date) return `<div class="cal-blank"></div>`;
@@ -563,12 +570,12 @@ https://www.revu.net/campaign/123456`;
       return `<button type="button" class="cal-cell${date === today ? " today" : ""}${date === day ? " selected" : ""}${dow === 0 ? " sun" : dow === 6 ? " sat" : ""}" data-action="cal-day" data-date="${date}" aria-label="${esc(RN.formatShort(date))} 일정 ${list.length}건"><span class="cal-num">${Number(date.slice(8))}</span><span class="cal-pills">${pills}${more}</span></button>`;
     }).join("");
     let agenda;
-    if (dayEvents.length === 0) {
-      agenda = `<p class="muted pad">이 날은 일정이 없어요.</p>${monthAgenda.length ? `<h2 class="section-title">${Number(current.slice(5))}월 남은 일정 <span class="count">${monthAgenda.length}</span></h2><div class="stack-sm">${monthAgenda.map((event) => campaignCard(event.campaign, today, event)).join("")}</div>` : ""}`;
+    if (dayAgenda.length === 0) {
+      agenda = `<p class="muted pad">이 날은 일정이 없어요.</p>${monthAgenda.length ? `<h2 class="section-title">${Number(current.slice(5))}월 남은 일정 <span class="count">${monthAgenda.length}</span></h2><div class="stack-sm">${monthAgenda.map(({ campaign, events }) => campaignCard(campaign, today, events)).join("")}</div>` : ""}`;
     } else {
-      agenda = `<div class="stack-sm">${dayEvents.map((event) => `<div><p class="event-caption k-${event.kind}">${esc(RN.EVENT_LABEL[event.kind])}${event.done ? " · 완료" : ""}</p>${campaignCard(event.campaign, today, event.done ? null : event)}</div>`).join("")}</div>`;
+      agenda = `<div class="stack-sm">${dayAgenda.map(({ campaign, events }) => campaignCard(campaign, today, events)).join("")}</div>`;
     }
-    return `<div class="stack">${pageHeader("캘린더", `방문 ${visits}건 · 리뷰 마감 ${deadlines}건`)}<div class="card calendar"><div class="cal-head"><button type="button" class="icon-btn" data-action="cal-prev" aria-label="이전 달">${icons.left(20)}</button><button type="button" class="cal-title" data-action="cal-today">${esc(RN.monthLabel(current))}</button><button type="button" class="icon-btn" data-action="cal-next" aria-label="다음 달">${icons.right(20)}</button></div><div class="cal-grid">${dows}${cellHtml}</div><div class="cal-legend"><span><i class="dot k-visit"></i> 방문</span><span><i class="dot k-visitEnd"></i> 방문 기한</span><span><i class="dot k-deadline"></i> 리뷰 마감</span></div></div><section class="section"><h2 class="section-title">${esc(RN.formatShort(day))} ${day === today ? '<span class="chip">오늘</span>' : ""}<span class="count">${dayEvents.length}</span></h2>${agenda}</section></div>`;
+    return `<div class="stack">${pageHeader("캘린더", `방문 ${visits}건 · 리뷰 마감 ${deadlines}건`)}<div class="card calendar"><div class="cal-head"><button type="button" class="icon-btn" data-action="cal-prev" aria-label="이전 달">${icons.left(20)}</button><button type="button" class="cal-title" data-action="cal-today">${esc(RN.monthLabel(current))}</button><button type="button" class="icon-btn" data-action="cal-next" aria-label="다음 달">${icons.right(20)}</button></div><div class="cal-grid">${dows}${cellHtml}</div><div class="cal-legend"><span><i class="dot k-visit"></i> 방문</span><span><i class="dot k-visitEnd"></i> 방문 기한</span><span><i class="dot k-deadline"></i> 리뷰 마감</span></div></div><section class="section"><h2 class="section-title">${esc(RN.formatShort(day))} ${day === today ? '<span class="chip">오늘</span>' : ""}<span class="count">${dayAgenda.length}</span></h2>${agenda}</section></div>`;
   }
 
   function statsPage() {

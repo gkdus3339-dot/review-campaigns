@@ -441,6 +441,19 @@ function upcomingEvents(campaigns, today) {
     });
 }
 
+/** Keep each campaign together, ordered by its first event in the supplied list. */
+function groupCampaignEvents(events) {
+    const groups = new Map();
+    for (const event of events) {
+        const group = groups.get(event.campaign.id);
+        if (group)
+            group.events.push(event);
+        else
+            groups.set(event.campaign.id, { campaign: event.campaign, events: [event] });
+    }
+    return [...groups.values()];
+}
+
 /* src/lib/stats.ts */
 /** Month a campaign's savings count toward: visit date, else win date, else creation date. */
 function savingsMonth(c) {
@@ -1895,6 +1908,7 @@ root.RN = {
   campaignEvents: campaignEvents,
   EVENT_LABEL: EVENT_LABEL,
   upcomingEvents: upcomingEvents,
+  groupCampaignEvents: groupCampaignEvents,
   savingsMonth: savingsMonth,
   monthlySavings: monthlySavings,
   recentMonths: recentMonths,
