@@ -6,7 +6,7 @@ import { useData } from "@/components/DataProvider";
 import { ClipboardIcon, PlusIcon } from "@/components/Icons";
 import { Empty, ErrorBox, Loading, PageHeader } from "@/components/ui";
 import { diffDays, formatShort, monthKey, parseISO, WEEKDAYS } from "@/lib/dates";
-import { upcomingEvents } from "@/lib/events";
+import { groupCampaignEvents, upcomingEvents } from "@/lib/events";
 import { formatWon } from "@/lib/money";
 import { monthlySavings } from "@/lib/stats";
 import { needsReview } from "@/lib/types";
@@ -19,17 +19,18 @@ export default function Dashboard() {
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
   const d = parseISO(today);
-  const events = upcomingEvents(campaigns, today);
-  const overdue = events.filter((e) => diffDays(today, e.date) < 0);
-  const soon = events.filter((e) => {
-    const days = diffDays(today, e.date);
+  const groups = groupCampaignEvents(upcomingEvents(campaigns, today));
+  const scheduledIds = new Set(groups.map(({ campaign }) => campaign.id));
+  const overdue = groups.filter(({ events }) => diffDays(today, events[0].date) < 0);
+  const soon = groups.filter(({ events }) => {
+    const days = diffDays(today, events[0].date);
     return days >= 0 && days <= UPCOMING_WINDOW_DAYS;
   });
-  const later = events.length - overdue.length - soon.length;
+  const later = groups.length - overdue.length - soon.length;
 
   const unwritten = campaigns.filter((c) => needsReview(c.status));
   const overdueReviews = unwritten.filter((c) => c.deadline && c.deadline < today);
-  const undated = unwritten.filter((c) => !c.deadline && !events.some((e) => e.campaign.id === c.id));
+  const undated = unwritten.filter((c) => !c.deadline && !scheduledIds.has(c.id));
 
   const thisMonth = monthlySavings(campaigns).get(monthKey(today));
 
@@ -78,8 +79,8 @@ export default function Dashboard() {
                 기한 지남 <span className="count">{overdue.length}</span>
               </h2>
               <div className="stack-sm">
-                {overdue.map((e) => (
-                  <CampaignCard key={e.key} campaign={e.campaign} event={e} today={today} />
+                {overdue.map(({ campaign, events }) => (
+                  <CampaignCard key={campaign.id} campaign={campaign} events={events} today={today} />
                 ))}
               </div>
             </section>
@@ -93,14 +94,14 @@ export default function Dashboard() {
               <p className="muted pad">앞으로 {UPCOMING_WINDOW_DAYS}일 안에 예정된 방문이나 마감이 없어요.</p>
             ) : (
               <div className="stack-sm">
-                {soon.map((e) => (
-                  <CampaignCard key={e.key} campaign={e.campaign} event={e} today={today} />
+                {soon.map(({ campaign, events }) => (
+                  <CampaignCard key={campaign.id} campaign={campaign} events={events} today={today} />
                 ))}
               </div>
             )}
             {later > 0 && (
               <Link href="/calendar" className="more-link">
-                이후 일정 {later}건 캘린더에서 보기 →
+                이후 체험단 {later}건 캘린더에서 보기 →
               </Link>
             )}
           </section>
@@ -112,7 +113,7 @@ export default function Dashboard() {
               </h2>
               <div className="stack-sm">
                 {undated.map((c) => (
-                  <CampaignCard key={c.id} campaign={c} event={null} today={today} />
+                  <CampaignCard key={c.id} campaign={c} today={today} />
                 ))}
               </div>
             </section>
