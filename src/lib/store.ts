@@ -7,6 +7,7 @@ const MAX_CAMPAIGNS = 5000;
 interface Stored {
   campaigns: Campaign[];
   platforms: string[];
+  sync?: unknown;
 }
 
 function empty(): Stored {
@@ -22,7 +23,7 @@ function read(): Stored {
   }
   if (!raw) return empty();
   try {
-    const parsed = JSON.parse(raw) as { campaigns?: unknown; platforms?: unknown };
+    const parsed = JSON.parse(raw) as { campaigns?: unknown; platforms?: unknown; sync?: unknown };
     const campaigns = Array.isArray(parsed.campaigns)
       ? parsed.campaigns.flatMap((row) => {
           const campaign = asCampaign(row);
@@ -33,6 +34,7 @@ function read(): Stored {
     return {
       campaigns,
       platforms: asPlatforms(parsed.platforms),
+      sync: parsed.sync,
     };
   } catch (error) {
     if (error instanceof ValidationError) throw error;
@@ -103,7 +105,9 @@ export function updateLocal(id: string, patch: Partial<CampaignInput>): Campaign
   const index = data.campaigns.findIndex((c) => c.id === id);
   if (index < 0) throw new Error("캠페인을 찾을 수 없습니다");
   const fields = parseCampaign(patch, true);
-  const campaign: Campaign = { ...data.campaigns[index], ...fields, updated_at: new Date().toISOString() };
+  const previous = data.campaigns[index];
+  const updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous.updated_at) || 0) + 1)).toISOString();
+  const campaign: Campaign = { ...previous, ...fields, updated_at: updatedAt };
   data.campaigns[index] = campaign;
   write(data);
   return campaign;
